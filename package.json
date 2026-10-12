@@ -20,11 +20,12 @@
     "spec:lint": "redocly lint openapi/openapi.yaml",
     "spec:types": "openapi-typescript openapi/openapi.yaml -o src/generated/api.ts",
     "mock": "prism mock openapi/openapi.yaml",
-    "db:up": "docker compose up -d --wait",
+    "db:up": "docker compose up -d --wait db",
     "db:migrate": "tsx --env-file=.env scripts/migrate.ts",
     "db:seed": "tsx --env-file=.env scripts/seed.ts",
     "token": "tsx --env-file=.env scripts/token.ts",
-    "spec:check": "npm run spec:lint && npm run spec:types && git diff --exit-code src/generated/api.ts"
+    "spec:check": "npm run spec:lint && npm run spec:types && git diff --exit-code src/generated/api.ts",
+    "token:docker": "docker compose exec api node dist/scripts/token.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

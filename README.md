@@ -10,19 +10,24 @@ Built **contract-first**: the OpenAPI spec was written and mocked before any bac
 
 ## Quick start
 
-Requires Node 26 and Docker.
+Requires only Docker.
 
 ```bash
-npm ci
-npm run setup    # .env, Postgres in Docker, migrations, demo data
-npm start        # http://localhost:3000
+docker compose up
 ```
+
+| Service | What it does |
+|---|---|
+| `db` | PostgreSQL 18 on `:5432` |
+| `setup` | Runs the migrations and loads the demo data, then exits. Every `up` resets the demo data. |
+| `api` | The API on http://localhost:3000, docs on http://localhost:3000/docs |
+| `mock` | The contract as a Prism mock on http://localhost:4010 |
 
 Try it with the demo users:
 
 ```bash
-ANNA=$(npm run -s token -- anna)   # owner of Company AB, active card
-ERIK=$(npm run -s token -- erik)   # employee, inactive card (last4 7310)
+ANNA=$(docker compose exec -T api node dist/scripts/token.js anna)   # owner of Company AB, active card
+ERIK=$(docker compose exec -T api node dist/scripts/token.js erik)   # employee, inactive card (last4 7310)
 
 curl -H "Authorization: Bearer $ANNA" localhost:3000/v1/me/companies
 curl -H "Authorization: Bearer $ANNA" localhost:3000/v1/companies/01900000-0000-7000-8000-0000000000c1/card-overview
@@ -31,11 +36,24 @@ curl -X POST -H "Authorization: Bearer $ERIK" -H 'content-type: application/json
      -d '{"last4":"7310"}' localhost:3000/v1/cards/01900000-0000-7000-8000-0000000000a2/activation
 ```
 
+`npm run token:docker -- anna` is the same shortcut. CI starts this stack and runs [`scripts/docker-smoke.sh`](scripts/docker-smoke.sh) against it.
+
+### Developing locally
+
+Requires Node 26. Stop the `api` container first (`docker compose stop api`), since both use port 3000.
+
+```bash
+npm ci
+npm run setup    # .env, Postgres in Docker, migrations, demo data
+npm run dev      # http://localhost:3000, reloads on change
+npm run token -- anna
+```
+
 `npm run db:seed` resets the demo data at any time.
 
-**Production build:** `npm run build` compiles to `dist/` and copies the spec and migrations next to it; run with `npm run db:migrate:prod` and `npm run start:prod`. Two instances migrating at once are safe: they take turns on a database lock.
+**Production build:** the `Dockerfile` builds a small image with the compiled code and production dependencies only, running as a non-root user. Without Docker: `npm run build`, then `npm run db:migrate:prod` and `npm run start:prod`. Two instances migrating at once are safe: they take turns on a database lock.
 
-**API docs:** http://localhost:3000/docs (Swagger UI). Click **Authorize**, paste a token from `npm run token -- anna` (or `erik` for activation), and try the calls in the browser; the server menu also switches to the Prism mock. The page shows `openapi.yaml` as written (static mode), so the docs cannot drift from the contract.
+**API docs:** http://localhost:3000/docs (Swagger UI). Click **Authorize**, paste a token for `anna` (or `erik` for activation), and try the calls in the browser; the server menu also switches to the Prism mock. The page shows `openapi.yaml` as written (static mode), so the docs cannot drift from the contract.
 
 **Logs:** `npm run dev` prints readable, coloured logs; `npm start` prints one JSON object per line, as in production. Set the level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
 
@@ -222,7 +240,7 @@ On pull requests, [`oasdiff`](https://github.com/oasdiff/oasdiff) compares the s
 - Turn `/docs` off, or put it behind auth, in production if the API is not meant to be public.
 - Observability: OpenTelemetry traces (W3C `traceparent` next to `X-Request-Id`), RED metrics per route, alerts on 5xx and latency.
 - `ETag` / `Cache-Control` on the overview; push updates (SSE or push notifications) when a transaction arrives.
-- Deploy: container on ECS Fargate or Lambda behind API Gateway, RDS PostgreSQL, secrets in Secrets Manager, infrastructure as code (CDK), migrations as a pipeline step.
+- Deploy: the image on ECS Fargate behind API Gateway or an ALB, RDS PostgreSQL, secrets in Secrets Manager, infrastructure as code (CDK), migrations as a pipeline step before the new version takes traffic.
 
 **Scale**
 - A monthly spend counter maintained by the database once summing becomes slow, keeping the `SUM` as a reconciliation check.

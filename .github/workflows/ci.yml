@@ -66,3 +66,14 @@ jobs:
           fail-on: ERR
           # Keep the spec inside CI.
           review: false
+
+  docker:
+    name: docker compose up
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The whole stack as a reviewer starts it: image build, migrations, demo data, API and mock.
+      - run: docker compose up -d --build
+      - run: ./scripts/docker-smoke.sh
+      - if: always()
+        run: docker compose down -v
