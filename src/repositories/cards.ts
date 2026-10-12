@@ -35,6 +35,17 @@ function toCard(r: Record<string, unknown>): CardRow {
   };
 }
 
+function toTransactionRow(r: Record<string, unknown>): TransactionRow {
+  return {
+    id: r.id as string,
+    merchant: r.merchant as string,
+    amountMinor: toSafeInteger(r.amount_minor as string),
+    currency: r.currency as string,
+    status: r.status as TransactionRow['status'],
+    occurredAt: r.occurred_at as Date,
+  };
+}
+
 export function cardsRepository(db: Queryable) {
   return {
     /** The holder's most recently created card in the company that is not CLOSED. */
@@ -71,14 +82,48 @@ export function cardsRepository(db: Queryable) {
           LIMIT $2`,
         [cardId, limit],
       );
-      return rows.map((r) => ({
-        id: r.id,
-        merchant: r.merchant,
-        amountMinor: toSafeInteger(r.amount_minor),
-        currency: r.currency,
-        status: r.status,
-        occurredAt: r.occurred_at,
-      }));
+      return rows.map(toTransactionRow);
+    },
+
+    /**
+     * A card the user holds, in a company they are still a member of. Any status:
+     * a closed card's history stays visible. Null means "not found" to the caller (ADR 0005).
+     */
+    async findHeldCard(cardId: string, userId: string): Promise<CardRow | null> {
+      const { rows } = await db.query(
+        `SELECT ${CARD_COLUMNS.split(', ').map((c) => `c.${c}`).join(', ')}
+           FROM cards c
+           JOIN company_members m ON m.company_id = c.company_id AND m.user_id = c.holder_user_id
+          WHERE c.id = $1 AND c.holder_user_id = $2`,
+        [cardId, userId],
+      );
+      return rows[0] ? toCard(rows[0]) : null;
+    },
+
+    /** Whether a transaction belongs to the card. Used to reject cursors from another card. */
+    async hasTransaction(cardId: string, transactionId: string): Promise<boolean> {
+      const { rowCount } = await db.query('SELECT 1 FROM transactions WHERE id = $1 AND card_id = $2', [
+        transactionId, cardId,
+      ]);
+      return rowCount === 1;
+    },
+
+    /**
+     * Newest first, strictly after the cursor transaction in (occurred_at, id) order.
+     * Keyset pagination: rows arriving between pages never shift the next page.
+     */
+    async transactionsPage(cardId: string, limit: number, afterId: string | null): Promise<TransactionRow[]> {
+      const { rows } = await db.query(
+        `SELECT t.id, t.merchant, t.amount_minor, t.currency, t.status, t.occurred_at
+           FROM transactions t
+          WHERE t.card_id = $1
+            AND ($3::uuid IS NULL OR (t.occurred_at, t.id) <
+                 (SELECT c.occurred_at, c.id FROM transactions c WHERE c.id = $3::uuid))
+          ORDER BY t.occurred_at DESC, t.id DESC
+          LIMIT $2`,
+        [cardId, limit, afterId],
+      );
+      return rows.map(toTransactionRow);
     },
 
     async countTransactions(cardId: string): Promise<number> {

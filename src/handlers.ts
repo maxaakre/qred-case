@@ -3,6 +3,7 @@ import type { AppDeps } from './app.js';
 import type { components } from './generated/api.js';
 import { cardOverviewService } from './overview.js';
 import { companiesRepository } from './repositories/companies.js';
+import { transactionsService } from './transactions.js';
 
 type Schemas = components['schemas'];
 
@@ -10,6 +11,7 @@ type Schemas = components['schemas'];
 export function createHandlers({ pool, config, now }: AppDeps) {
   const companies = companiesRepository(pool);
   const overview = cardOverviewService(pool, config, now);
+  const transactions = transactionsService(pool);
 
   return {
     async getHealth(_req: FastifyRequest, reply: FastifyReply) {
@@ -23,6 +25,12 @@ export function createHandlers({ pool, config, now }: AppDeps) {
 
     async getCardOverview(req: FastifyRequest<{ Params: { companyId: string } }>): Promise<Schemas['CardOverview']> {
       return overview.get(req.userId, req.params.companyId);
+    },
+
+    async listCardTransactions(
+      req: FastifyRequest<{ Params: { cardId: string }; Querystring: { limit: number; cursor?: string } }>,
+    ): Promise<Schemas['TransactionPage']> {
+      return transactions.list(req.userId, req.params.cardId, req.query.limit, req.query.cursor);
     },
   };
 }

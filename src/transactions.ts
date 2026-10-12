@@ -1,0 +1,40 @@
+import type pg from 'pg';
+import type { components } from './generated/api.js';
+import { toTransaction } from './overview.js';
+import { HttpProblem, notFound } from './problem.js';
+import { cardsRepository } from './repositories/cards.js';
+
+type Schemas = components['schemas'];
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const invalidCursor = () => new HttpProblem(400, 'Bad Request', 'Invalid cursor');
+
+// The cursor is opaque to clients so we can change what is inside without breaking them.
+const encodeCursor = (transactionId: string) => Buffer.from(transactionId).toString('base64url');
+
+function decodeCursor(cursor: string): string {
+  const id = Buffer.from(cursor, 'base64url').toString('utf8');
+  if (!UUID.test(id)) throw invalidCursor();
+  return id;
+}
+
+export function transactionsService(pool: pg.Pool) {
+  const cards = cardsRepository(pool);
+  return {
+    async list(userId: string, cardId: string, limit: number, cursor?: string): Promise<Schemas['TransactionPage']> {
+      if (!(await cards.findHeldCard(cardId, userId))) throw notFound('Card not found');
+
+      const afterId = cursor === undefined ? null : decodeCursor(cursor);
+      if (afterId && !(await cards.hasTransaction(cardId, afterId))) throw invalidCursor();
+
+      // Fetch one extra row to know whether there is a next page without a COUNT.
+      const rows = await cards.transactionsPage(cardId, limit + 1, afterId);
+      const page = rows.slice(0, limit);
+      const last = page.at(-1);
+      return {
+        items: page.map(toTransaction),
+        nextCursor: rows.length > limit && last ? encodeCursor(last.id) : null,
+      };
+    },
+  };
+}
