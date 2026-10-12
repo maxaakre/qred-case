@@ -3,88 +3,111 @@ info:
   title: Card Overview API
   version: 1.0.0
   description: |
-    Backend for the card overview screen in the mobile app: the company switcher,
-    the card, "Invoice due", spend against the user's own limit, the latest
-    transactions, "Activate card" and "Contact Qred's support".
+    The backend for the **card overview screen** in the mobile app.
 
     This file is the contract. Everything the app needs to build the screen is
-    here; if something is missing, the contract is wrong, not your reading of it.
+    here. If something is missing, the contract is wrong, not your reading of it.
 
     ## Building the screen
 
-    1. **Company switcher:** `GET /v1/me/companies`. Sorted by name. The app
-       chooses which company to show first (for example the last one the user
-       picked, otherwise the first item). An empty list means the user belongs
-       to no company: show an empty state.
-    2. **The screen:** `GET /v1/companies/{companyId}/card-overview`. One call
-       returns everything below the switcher. Call it again when the user
-       switches company, returns to the screen, pulls to refresh, or after an
-       activation. Responses are never cached (`Cache-Control: no-store`), so
-       they are always current.
-    3. **"54 more items in transaction view":** show it when
-       `latestTransactions.totalCount > latestTransactions.items.length`, with
-       the difference as the number. Tapping it opens
-       `GET /v1/cards/{cardId}/transactions`, which starts from the newest
-       transaction (the 3 already shown included).
-    4. **"Activate card":** show the button when `actions.canActivateCard` is
-       true. Ask for the last 4 digits printed on the card and send them to
-       `POST /v1/cards/{cardId}/activation`. On `200`, call the overview again.
-    5. **"Contact Qred's support":** always available in `support`.
+    ### 1. Company switcher
+    `GET /v1/me/companies`, sorted by name.
+
+    - The app picks which company to show first, for example the last one the
+      user chose, otherwise the first item.
+    - An empty list means the user belongs to no company: show an empty state.
+
+    ### 2. The screen
+    `GET /v1/companies/{companyId}/card-overview` returns everything below the
+    switcher in one call.
+
+    Call it again when the user switches company, comes back to the screen,
+    pulls to refresh, or has just activated a card. Responses are never cached,
+    so they are always current.
+
+    ### 3. "54 more items in transaction view"
+    Show it when `latestTransactions.totalCount` is larger than
+    `latestTransactions.items.length`. The number is the difference.
+
+    Tapping it opens `GET /v1/cards/{cardId}/transactions`. That list starts
+    from the newest transaction, so the 3 already shown come first.
+
+    ### 4. "Activate card"
+    Show the button when `actions.canActivateCard` is `true`.
+
+    Ask for the last 4 digits printed on the card and send them to
+    `POST /v1/cards/{cardId}/activation`. On `200`, load the screen again.
+
+    ### 5. "Contact Qred's support"
+    Always available in `support`.
 
     ## Showing errors to users
 
-    Errors are RFC 9457 `application/problem+json`. `title` and `detail` are
-    English text for developers and logs: **never show them to users.** Choose
-    the user's text from the HTTP status and the extra fields below.
+    Errors are RFC 9457 `application/problem+json`.
+
+    **Never show `title` or `detail` to users.** They are English text for
+    developers and logs. Choose the user's text from the HTTP status, and from
+    extra fields such as `attemptsRemaining`.
 
     | Status | Meaning | What the app does |
     |---|---|---|
-    | 400 | The request is malformed (bad id, limit, cursor or body) | A bug in the app. On transactions, an invalid cursor: reload from the first page |
+    | 400 | The request is malformed | A bug in the app. For an invalid cursor: reload from the first page |
     | 401 | Token missing, invalid or expired | Sign the user in again |
-    | 404 | Does not exist, or the user has no access (the API does not say which) | On the overview: the user may have left the company; reload the company list |
-    | 409 | The card cannot be activated in its current state | Reload the overview; it shows the current state |
-    | 422 | Wrong activation digits | "Wrong digits, N attempts left" from `attemptsRemaining` |
+    | 404 | Not found, or no access (the API does not say which) | On the screen: the user may have left the company. Reload the company list |
+    | 409 | The card cannot be activated right now | Reload the screen; it shows the current state |
+    | 422 | Wrong activation digits | "Wrong digits, N attempts left", from `attemptsRemaining` |
     | 423 | Activation locked after 5 wrong attempts | Show the contact options from `support` |
-    | 429 | Too many attempts | Wait `Retry-After` seconds before allowing another try |
-    | 5xx, 503 | Server or database problem | "Something went wrong, try again"; retry with backoff |
+    | 429 | Too many attempts | Wait `Retry-After` seconds before the next try |
+    | 5xx | Server or database problem | "Something went wrong, try again", and retry with backoff |
 
     ## Formats
 
-    - **Money** is `{ minor, currency }`: an integer in the currency's minor
-      unit (öre for SEK), never a float. `{ "minor": 540000, "currency": "SEK" }`
-      is 5 400,00 kr. Format on the device, for example
-      `new Intl.NumberFormat('sv-SE', { style: 'currency', currency, maximumFractionDigits: 0 }).format(minor / 100)`
-      gives "5 400 kr".
-    - **Timestamps** (`occurredAt`) are ISO 8601 in UTC. Show them in the
-      user's time zone.
-    - **Dates** (`dueDate`, `periodStart`, `periodEnd`) are `YYYY-MM-DD`
-      calendar dates in Swedish time. Show them as they are; do not convert
-      time zones.
-    - **`null`** means "nothing to show" (no card, no invoice due), never an error.
+    **Money** is `{ minor, currency }`: a whole number in the currency's
+    smallest unit (öre for SEK), never a float. `{ "minor": 540000, "currency": "SEK" }`
+    is 5 400 kr. Format it on the device:
+
+    ```js
+    new Intl.NumberFormat('sv-SE', { style: 'currency', currency, maximumFractionDigits: 0 })
+      .format(minor / 100) // "5 400 kr"
+    ```
+
+    **Timestamps** such as `occurredAt` are ISO 8601 in UTC. Show them in the
+    user's time zone.
+
+    **Dates** such as `dueDate`, `periodStart` and `periodEnd` are `YYYY-MM-DD`
+    in Swedish time. Show them as they are, without converting time zones.
+
+    **`null`** means "nothing to show", such as no card or no invoice due. It is
+    never an error.
 
     ## Auth
 
-    Every endpoint except `/health` needs `Authorization: Bearer <token>`. The
-    token identifies the user; what they may see is decided by the backend on
-    every request. In production the token comes from the app's sign-in
-    (BankID); this case uses locally signed demo tokens.
+    Every endpoint except `/health` needs `Authorization: Bearer <token>`.
+
+    The token says who the user is. What they may see is checked by the backend
+    on every request. In production the token comes from the app's sign-in
+    (BankID). This case uses locally signed demo tokens.
 
     ## Headers
 
-    - Every response has an `X-Request-Id`. Send your own (letters, digits,
-      `.`, `_`, `-`, max 128) to follow one request from the app through the
-      backend logs; otherwise the backend creates one. Include it in bug reports.
-    - Every response has `Cache-Control: no-store`: the data is personal, so
-      neither the app's HTTP cache nor any proxy keeps it. Fetch again instead.
-    - Activation responses carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`
-      and `X-RateLimit-Reset`.
+    - **`X-Request-Id`** is on every response. Send your own (letters, digits,
+      `.`, `_`, `-`, max 128) to follow one request through the backend logs.
+      Include it in bug reports.
+    - **`Cache-Control: no-store`** is on every response. The data is personal,
+      so no cache may keep it. Fetch again instead.
+    - **`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`** are
+      on activation responses.
 
     ## Mock server
 
-    The same contract runs as a mock on `http://localhost:4010`
-    (`docker compose up` or `npm run mock`). Every state of the screen has a
-    named example; pick one with the `Prefer` header, for example
-    `Prefer: example=inactiveCard` or `Prefer: code=423`.
+    The same contract runs as a mock on `http://localhost:4010`, started by
+    `docker compose up` or `npm run mock`.
+
+    Every state of the screen has a named example. Pick one with the `Prefer`
+    header:
+
+    - `Prefer: example=activeCard`, `inactiveCard`, `activationLocked`, `frozenCard` or `noCard`
+    - `Prefer: code=423` for an error
 servers:
   - url: http://localhost:3000
     description: Local backend

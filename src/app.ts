@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { createSecurityHandlers } from './auth.js';
 import type { Config } from './config.js';
 import { registerDemoRoutes, withDemoDocs } from './demo.js';
+import { docsTheme } from './docs-theme.js';
 import { createHandlers } from './handlers.js';
 import { HttpProblem, registerProblemHandlers } from './problem.js';
 
@@ -80,6 +81,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(swagger, { mode: 'static', specification: { path: SPEC, baseDir: dirname(SPEC) } });
   await app.register(swaggerUi, {
     routePrefix: '/docs',
+    theme: { title: 'Card Overview API', css: [{ filename: 'theme.css', content: docsTheme }] },
+    uiConfig: {
+      // Every operation is ready to Execute, and shows how long the call took.
+      tryItOutEnabled: true,
+      displayRequestDuration: true,
+      // The guide and the operations come first; schemas stay folded at the bottom.
+      defaultModelsExpandDepth: 0,
+    },
     ...(deps.config.demoMode && { transformSpecification: withDemoDocs }),
   });
   // Logs "ContentTypeParser for 'application/problem+json' not found" at startup: the plugin
