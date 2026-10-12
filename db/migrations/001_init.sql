@@ -1,15 +1,16 @@
 -- Core schema for the card overview screen.
 -- Money is stored as integer minor units (öre) to avoid float rounding.
+-- Ids default to uuidv7 (PostgreSQL 18): time-ordered, so new rows land at the end of the index.
 
 CREATE TABLE users (
-  id          uuid PRIMARY KEY,
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
   email       text NOT NULL UNIQUE,
   name        text NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE companies (
-  id          uuid PRIMARY KEY,
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
   name        text NOT NULL,
   org_number  text NOT NULL UNIQUE,
   created_at  timestamptz NOT NULL DEFAULT now()
@@ -27,7 +28,7 @@ CREATE INDEX company_members_company_idx ON company_members (company_id);
 
 -- A company can have many cards, each issued to one user.
 CREATE TABLE cards (
-  id                  uuid PRIMARY KEY,
+  id                  uuid PRIMARY KEY DEFAULT uuidv7(),
   company_id          uuid NOT NULL REFERENCES companies(id),
   holder_user_id      uuid NOT NULL REFERENCES users(id),
   last4               char(4) NOT NULL CHECK (last4 ~ '^[0-9]{4}$'),
@@ -51,7 +52,7 @@ CREATE INDEX cards_company_holder_idx ON cards (company_id, holder_user_id);
 
 -- Signed amounts: negative = money out (purchase), positive = money in (refund).
 CREATE TABLE transactions (
-  id            uuid PRIMARY KEY,
+  id            uuid PRIMARY KEY DEFAULT uuidv7(),
   card_id       uuid NOT NULL REFERENCES cards(id),
   amount_minor  bigint NOT NULL CHECK (amount_minor <> 0),
   currency      char(3) NOT NULL,
@@ -63,7 +64,7 @@ CREATE TABLE transactions (
 CREATE INDEX transactions_card_occurred_idx ON transactions (card_id, occurred_at DESC, id DESC);
 
 CREATE TABLE invoices (
-  id            uuid PRIMARY KEY,
+  id            uuid PRIMARY KEY DEFAULT uuidv7(),
   company_id    uuid NOT NULL REFERENCES companies(id),
   amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
   currency      char(3) NOT NULL,

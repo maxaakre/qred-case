@@ -5,7 +5,7 @@ import { migrate } from '../scripts/migrate.js';
 let container: StartedPostgreSqlContainer;
 
 export async function setup(project: TestProject) {
-  container = await new PostgreSqlContainer('postgres:17-alpine').start();
+  container = await new PostgreSqlContainer('postgres:18-alpine').start();
   const url = container.getConnectionUri();
   await migrate(url);
   project.provide('databaseUrl', url);
