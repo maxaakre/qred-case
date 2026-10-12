@@ -10,7 +10,7 @@ Built **contract-first**: the OpenAPI spec was written and mocked before any bac
 
 ## Quick start
 
-Requires Node 24 and Docker.
+Requires Node 26 and Docker.
 
 ```bash
 npm ci
@@ -123,7 +123,7 @@ Tests sit at three agreed seams:
 
 The tests were checked by breaking the code on purpose (counting declined transactions, showing `last4` on inactive cards, not clamping spend, including closed cards, a read-then-write attempt counter). Each break made a test fail.
 
-CI runs lint, typecheck, spec validation (including that generated types are up to date) and tests on Node 24 (production LTS) and Node 26 (next LTS).
+CI runs lint, typecheck, spec validation (including that generated types are up to date) and tests on Node 26, the version in `.nvmrc`. Node 26 becomes LTS at the end of October 2026, so a service shipping now starts on the release with the longest support.
 
 ## With more time
 

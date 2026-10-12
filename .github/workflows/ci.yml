@@ -26,18 +26,14 @@ jobs:
       - run: npm run typecheck
 
   test:
-    name: Tests (Node ${{ matrix.node }})
+    name: Tests
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # 24 is the LTS we run in production; 26 checks we are ready for the next LTS.
-        node: [24, 26]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ matrix.node }}
+          # Same version as local development and production: one source of truth.
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       # Testcontainers starts Postgres using the runner's Docker.
