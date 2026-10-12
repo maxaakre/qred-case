@@ -55,9 +55,9 @@ npm run token -- anna
 
 **API docs:** http://localhost:3000/docs (Swagger UI). Click **Authorize**, paste a token for `anna` (or `erik` for activation), and try the calls in the browser; the server menu also switches to the Prism mock. The page shows `openapi.yaml` as written (static mode), so the docs cannot drift from the contract.
 
-**Logs:** `npm run dev` prints readable, coloured logs; `npm start` prints one JSON object per line, as in production. Set the level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
+**Logs:** `docker compose logs -f api` and `npm start` print one JSON object per line, as in production; `npm run dev` prints readable, coloured logs. Set the level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
 
-**Frontend without the backend:** `npm run mock` serves the contract with Prism on `http://localhost:4010`.
+**Frontend without the backend:** `docker compose up` already serves the contract with Prism on `http://localhost:4010`; `npm run mock` does the same without Docker.
 
 ## From the screen to the API
 
@@ -171,15 +171,27 @@ Each step is one SQL statement, so twelve parallel guesses still get exactly fiv
 ### Files
 
 ```
+openapi/openapi.yaml     the contract; everything below is driven by it
+db/migrations/           SQL migrations, applied in name order
 src/
-  app.ts             builds the Fastify app from the spec (used by server and tests)
-  server.ts          process entry: config, logging, graceful shutdown
-  config.ts          typed, validated config; refuses to start if anything is missing
-  auth.ts            JWT verification (HS256, subject = user id)
-  problem.ts         problem+json errors
-  db.ts              snapshot transactions, safe integer parsing
-scripts/             migrate, seed, token
-test/                HTTP tests against real Postgres, plus the contract checker
+  app.ts                 builds the Fastify app from the spec (used by server and tests)
+  server.ts              process entry: config, logging, graceful shutdown
+  config.ts              typed, validated config; refuses to start if anything is missing
+  auth.ts                JWT verification (HS256, subject = user id)
+  handlers.ts            one thin handler per operationId
+  overview.ts            use case: the card overview screen in one snapshot
+  transactions.ts        use case: paginated transactions with an opaque cursor
+  activation.ts          use case: activate a card, count wrong attempts
+  domain/                pure rules: spend period, activation, spend summary
+  repositories/          SQL, one file per aggregate
+  mappers.ts             database rows to API shapes
+  problem.ts             problem+json errors
+  db.ts                  transactions and snapshots, safe integer parsing
+  generated/api.ts       types generated from the spec (checked in CI)
+scripts/                 migrate, seed, token, docker-smoke.sh
+test/                    HTTP tests against real Postgres, plus the contract checker
+Dockerfile               production image: compiled code, production dependencies, non-root
+docker-compose.yml       db, setup (migrate + seed), api and mock
 ```
 
 ## Edge cases handled
@@ -218,11 +230,18 @@ Tests sit at three agreed seams:
 
 The tests were checked by breaking the code on purpose (counting declined transactions, showing `last4` on inactive cards, not clamping spend, including closed cards, a read-then-write attempt counter). Each break made a test fail.
 
-CI runs lint, typecheck, spec validation (including that generated types are up to date) and tests on Node 26, the version in `.nvmrc`. Node 26 becomes LTS at the end of October 2026, so a service shipping now starts on the release with the longest support.
+### CI
 
-CI also fails on known high-severity vulnerabilities in production dependencies (`npm audit --omit=dev`).
+Every push runs on Node 26, the version in `.nvmrc`. Node 26 becomes LTS at the end of October 2026, so a service shipping now starts on the release with the longest support.
 
-On pull requests, [`oasdiff`](https://github.com/oasdiff/oasdiff) compares the spec with `main` and **fails on breaking changes** (a removed field, a field that became optional, a new required input), because the app already in users' phones would break. Adding fields and endpoints passes. This was verified with a test pull request that made `spend.remaining` optional.
+| Job | Fails when |
+|---|---|
+| Contract, lint, types and build | The spec is invalid, `src/generated/api.ts` is out of date with it, lint or types fail, the production build breaks, or a production dependency has a known high-severity vulnerability (`npm audit --omit=dev`) |
+| Tests | Any test fails, against a real Postgres in Testcontainers |
+| docker compose up | The stack does not start from scratch, or [`scripts/docker-smoke.sh`](scripts/docker-smoke.sh) cannot call the API as a seeded user or reach the mock |
+| No breaking API changes (pull requests) | [`oasdiff`](https://github.com/oasdiff/oasdiff) finds a breaking change against `main`: a removed field, a field that became optional, a new required input. The app already in users' phones would break. Adding fields and endpoints passes. Verified with a test pull request that made `spend.remaining` optional. |
+
+The workflow token is read-only, and every action is pinned to a commit, so a moved tag cannot change what runs.
 
 ## With more time
 
