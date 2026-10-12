@@ -2,15 +2,19 @@ import type pg from 'pg';
 import type { Config } from './config.js';
 import { withSnapshot } from './db.js';
 import { activationBlockedReason, spendSummary } from './domain/card-rules.js';
-import { spendPeriodFor } from './domain/spend-period.js';
+import { spendPeriodFor, swedishDate } from './domain/spend-period.js';
 import type { components } from './generated/api.js';
 import { notFound } from './problem.js';
 import { type CardRow, cardsRepository, type TransactionRow } from './repositories/cards.js';
-import { companiesRepository } from './repositories/companies.js';
+import { companiesRepository, type Role } from './repositories/companies.js';
+import { invoicesRepository } from './repositories/invoices.js';
 
 type Schemas = components['schemas'];
 
 const LATEST_TRANSACTIONS = 3;
+
+/** Roles that may see the company's invoices. */
+const INVOICE_ROLES: ReadonlySet<Role> = new Set(['OWNER', 'ADMIN']);
 
 const money = (minor: number, currency: string): Schemas['Money'] => ({ minor, currency });
 
@@ -43,12 +47,23 @@ export function cardOverviewService(pool: pg.Pool, config: Config, now: () => Da
         // Same answer for "does not exist" and "not yours" (ADR 0005).
         if (!membership) throw notFound('Company not found');
 
+        const today = swedishDate(now());
+        const invoice = INVOICE_ROLES.has(membership.role)
+          ? await invoicesRepository(db).oldestUnpaid(companyId)
+          : null;
+
         const cards = cardsRepository(db);
         const card = await cards.findCurrentCard(userId, companyId);
         const reason = activationBlockedReason(card);
         const base = {
           company: membership.company,
-          invoiceDue: null,
+          invoiceDue: invoice && {
+            id: invoice.id,
+            amount: money(invoice.amountMinor, invoice.currency),
+            dueDate: invoice.dueDate,
+            // ISO dates compare correctly as strings. Due on the due date, overdue the day after.
+            isOverdue: invoice.dueDate < today,
+          },
           actions: { canActivateCard: reason === null, activationBlockedReason: reason },
           support: config.support,
         };

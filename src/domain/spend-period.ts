@@ -37,6 +37,12 @@ function stockholmMidnight(year: number, month: number, day: number): Date {
 const isoDate = (year: number, month: number, day: number) =>
   `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
+/** The calendar date in Sweden at an instant, as YYYY-MM-DD. */
+export function swedishDate(instant: Date): string {
+  const { year, month, day } = wallClock(instant);
+  return isoDate(year, month, day);
+}
+
 export function spendPeriodFor(now: Date): SpendPeriod {
   const { year, month } = wallClock(now);
   const nextYear = month === 12 ? year + 1 : year;

@@ -1,4 +1,8 @@
-import type pg from 'pg';
+import pg from 'pg';
+
+// Return DATE columns as 'YYYY-MM-DD' strings. The default turns them into a JS Date
+// at local midnight, which shifts the day depending on the server's time zone.
+pg.types.setTypeParser(pg.types.builtins.DATE, (value) => value);
 
 /** Anything that can run a query: the pool, or a client inside a transaction. */
 export type Queryable = Pick<pg.Pool, 'query'>;

@@ -221,4 +221,68 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       });
     });
   });
+
+  describe('invoice due', () => {
+    it('shows the oldest unpaid invoice to an owner', async () => {
+      const { user, company } = await member('OWNER');
+      await ctx.fx.invoice(company, { amount: 100_000, dueDate: '2026-09-30', status: 'PAID' });
+      const oldestUnpaid = await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-30' });
+      await ctx.fx.invoice(company, { amount: 70_000, dueDate: '2026-11-30' });
+
+      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+
+      expect(body.invoiceDue).toEqual({
+        id: oldestUnpaid,
+        amount: { minor: 540_000, currency: 'SEK' },
+        dueDate: '2026-10-30',
+        isOverdue: false,
+      });
+    });
+
+    it('shows the invoice to an admin', async () => {
+      const { user, company } = await member('ADMIN');
+      await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-30' });
+
+      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+
+      expect(body.invoiceDue).not.toBeNull();
+    });
+
+    it('hides the invoice from an employee', async () => {
+      const { user, company } = await member('EMPLOYEE');
+      await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-30' });
+
+      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+
+      expect(body.invoiceDue).toBeNull();
+    });
+
+    it('marks the invoice overdue once the due date has passed in Swedish time', async () => {
+      const { user, company } = await member('OWNER');
+      await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-11' }); // "now" is Oct 12
+
+      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+
+      expect(body.invoiceDue).toMatchObject({ dueDate: '2026-10-11', isOverdue: true });
+    });
+
+    it('is not overdue on the due date itself', async () => {
+      const { user, company } = await member('OWNER');
+      await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-12' });
+
+      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+
+      expect(body.invoiceDue).toMatchObject({ isOverdue: false });
+    });
+
+    it('shows the invoice even when the owner has no card of their own', async () => {
+      const { user, company } = await member('OWNER');
+      await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-30' });
+
+      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+
+      expect(body.card).toBeNull();
+      expect(body.invoiceDue).toMatchObject({ amount: { minor: 540_000 } });
+    });
+  });
 });
