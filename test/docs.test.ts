@@ -24,3 +24,17 @@ describe('API docs at /docs', () => {
     expect(operationIds.sort()).toEqual(['activateCard', 'getCardOverview', 'getHealth', 'listCardTransactions', 'listMyCompanies']);
   });
 });
+
+describe('API docs turned off (DOCS_ENABLED=false)', () => {
+  let ctx: TestContext;
+  beforeAll(async () => {
+    ctx = await createTestContext({ docsEnabled: false });
+  });
+  afterAll(() => ctx.close());
+
+  it.each(['/docs/', '/docs/json'])('does not serve %s', async (url) => {
+    const res = await ctx.app.inject({ method: 'GET', url });
+
+    expect(res.statusCode).toBe(404);
+  });
+});

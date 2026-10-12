@@ -24,6 +24,9 @@ services:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
       POSTGRES_DB: cards
+    volumes:
+      # Creates the API's login on first start (db/init/01-app-login.sql).
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -32,7 +35,7 @@ services:
       timeout: 3s
       retries: 15
 
-  # Runs once and exits: migrations, then demo data. Every `up` resets the demo data.
+  # Runs once and exits, as the schema owner: migrations, then demo data. Every `up` resets the demo data.
   setup:
     build: .
     image: card-overview-api:local
@@ -48,6 +51,8 @@ services:
     image: card-overview-api:local
     environment:
       <<: *app-env
+      # Only the privileges the app needs (migration 003). Migrations run as the owner in setup.
+      DATABASE_URL: postgres://card_api:card_api@db:5432/cards
       # POST /demo/token and prefilled ids on /docs (ADR 0009). Never in production.
       DEMO_MODE: "true"
     <<: *hardened

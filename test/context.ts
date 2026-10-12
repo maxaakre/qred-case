@@ -10,19 +10,25 @@ import { fixtures, type Fixtures } from './fixtures.js';
 export const testConfig: Config = {
   logLevel: 'silent',
   demoMode: false,
+  docsEnabled: true,
   port: 0,
-  databaseUrl: inject('databaseUrl'),
+  // The app connects with only its runtime privileges (see global-setup.ts).
+  databaseUrl: inject('appDatabaseUrl'),
   jwt: { secret: 'test-secret-test-secret-test-secret', issuer: 'test-issuer', audience: 'test-audience' },
   support: { phone: '+46 8 000 00 00', email: 'support@example.com', url: 'https://example.com/support' },
   // High enough that only the rate-limit tests hit it.
   activationRateLimit: { max: 1000, windowSeconds: 900 },
 };
 
+/** The schema owner: for test data and migrations, never for the app under test. */
+export const ownerDatabaseUrl = inject('ownerDatabaseUrl');
+
 /** The tests' "now": Monday 12 October 2026, 10:00 in Stockholm. */
 export const NOW = new Date('2026-10-12T08:00:00Z');
 
 export interface TestContext {
   app: FastifyInstance;
+  /** Owner connection, for creating test data. The app has its own, less privileged pool. */
   pool: pg.Pool;
   fx: Fixtures;
   token(userId: string, opts?: { expiresIn?: string }): Promise<string>;
@@ -37,8 +43,9 @@ export interface TestContext {
 }
 
 export async function createTestContext(overrides: Partial<Config> = {}): Promise<TestContext> {
-  const pool = new pg.Pool({ connectionString: testConfig.databaseUrl });
-  const app = await buildApp({ pool, config: { ...testConfig, ...overrides }, now: () => NOW });
+  const pool = new pg.Pool({ connectionString: ownerDatabaseUrl });
+  const appPool = new pg.Pool({ connectionString: testConfig.databaseUrl });
+  const app = await buildApp({ pool: appPool, config: { ...testConfig, ...overrides }, now: () => NOW });
   checkEveryResponse(app);
   const bearer = async (userId: string) => ({
     authorization: `Bearer ${await signDevToken(testConfig.jwt, userId)}`,
@@ -54,6 +61,7 @@ export async function createTestContext(overrides: Partial<Config> = {}): Promis
     post: async (userId, url, payload) => app.inject({ method: 'POST', url, headers: await bearer(userId), payload }),
     async close() {
       await app.close();
+      await appPool.end();
       await pool.end();
     },
   };

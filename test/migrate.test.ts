@@ -2,12 +2,12 @@ import { readdir } from 'node:fs/promises';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { migrate } from '../scripts/migrate.js';
-import { testConfig } from './context.js';
+import { ownerDatabaseUrl } from './context.js';
 
 describe('migrate', () => {
   const DB = 'migrate_race';
-  const admin = new pg.Pool({ connectionString: testConfig.databaseUrl });
-  const url = Object.assign(new URL(testConfig.databaseUrl), { pathname: `/${DB}` }).toString();
+  const admin = new pg.Pool({ connectionString: ownerDatabaseUrl });
+  const url = Object.assign(new URL(ownerDatabaseUrl), { pathname: `/${DB}` }).toString();
   beforeAll(async () => {
     await admin.query(`DROP DATABASE IF EXISTS ${DB}`);
     await admin.query(`CREATE DATABASE ${DB}`);

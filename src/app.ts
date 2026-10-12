@@ -88,37 +88,39 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     errorResponseBuilder: (_req, { after }) =>
       new HttpProblem(429, 'Too Many Requests', `Too many attempts. Try again in ${after}.`),
   });
-  // API docs at /docs. Static mode shows openapi.yaml as written; nothing is generated
-  // from the code, so the contract stays the single source.
-  await app.register(swagger, { mode: 'static', specification: { path: SPEC, baseDir: dirname(SPEC) } });
-  await app.register(swaggerUi, {
-    routePrefix: '/docs',
-    // The docs page may load its own files and call this API and the mock server from the
-    // spec's `servers`, nothing else. No `upgrade-insecure-requests`: it runs on local http.
-    staticCSP: {
-      'default-src': ["'self'"],
-      'base-uri': ["'self'"],
-      'connect-src': ["'self'", 'http://localhost:4010'],
-      'font-src': ["'self'", 'data:'],
-      'img-src': ["'self'", 'data:'],
-      'object-src': ["'none'"],
-      'script-src': ["'self'"],
-      'script-src-attr': ["'none'"],
-      // The hash is one small style Swagger UI injects at runtime; all other inline styles stay blocked.
-      'style-src': ["'self'", 'https:', "'sha256-RL3ie0nH+Lzz2YNqQN83mnU0J1ot4QL7b99vMdIX99w='"],
-      'frame-ancestors': ["'none'"],
-    },
-    theme: { title: 'Card Overview API', css: [{ filename: 'theme.css', content: docsTheme }] },
-    uiConfig: {
-      // Every operation is ready to Execute, and shows how long the call took.
-      tryItOutEnabled: true,
-      displayRequestDuration: true,
-      // The guide and the operations come first; schemas stay folded at the bottom.
-      defaultModelsExpandDepth: 0,
-      ...(deps.config.demoMode && demoDocsUiConfig),
-    },
-    ...(deps.config.demoMode && { transformSpecification: withDemoDocs }),
-  });
+  if (deps.config.docsEnabled) {
+    // API docs at /docs. Static mode shows openapi.yaml as written; nothing is generated
+    // from the code, so the contract stays the single source.
+    await app.register(swagger, { mode: 'static', specification: { path: SPEC, baseDir: dirname(SPEC) } });
+    await app.register(swaggerUi, {
+      routePrefix: '/docs',
+      // The docs page may load its own files and call this API and the mock server from the
+      // spec's `servers`, nothing else. No `upgrade-insecure-requests`: it runs on local http.
+      staticCSP: {
+        'default-src': ["'self'"],
+        'base-uri': ["'self'"],
+        'connect-src': ["'self'", 'http://localhost:4010'],
+        'font-src': ["'self'", 'data:'],
+        'img-src': ["'self'", 'data:'],
+        'object-src': ["'none'"],
+        'script-src': ["'self'"],
+        'script-src-attr': ["'none'"],
+        // The hash is one small style Swagger UI injects at runtime; all other inline styles stay blocked.
+        'style-src': ["'self'", 'https:', "'sha256-RL3ie0nH+Lzz2YNqQN83mnU0J1ot4QL7b99vMdIX99w='"],
+        'frame-ancestors': ["'none'"],
+      },
+      theme: { title: 'Card Overview API', css: [{ filename: 'theme.css', content: docsTheme }] },
+      uiConfig: {
+        // Every operation is ready to Execute, and shows how long the call took.
+        tryItOutEnabled: true,
+        displayRequestDuration: true,
+        // The guide and the operations come first; schemas stay folded at the bottom.
+        defaultModelsExpandDepth: 0,
+        ...(deps.config.demoMode && demoDocsUiConfig),
+      },
+      ...(deps.config.demoMode && { transformSpecification: withDemoDocs }),
+    });
+  }
   // Logs "ContentTypeParser for 'application/problem+json' not found" at startup: the plugin
   // also lists response types. That is intended; such request bodies get 415 (tested).
   await app.register(openapiGlue, {

@@ -19,8 +19,8 @@ docker compose up
 | Service | What it does |
 |---|---|
 | `db` | PostgreSQL 18 on `:5432` |
-| `setup` | Runs the migrations and loads the demo data, then exits. Every `up` resets the demo data. |
-| `api` | The API on http://localhost:3000, docs on http://localhost:3000/docs |
+| `setup` | Runs the migrations and loads the demo data as the schema owner, then exits. Every `up` resets the demo data. |
+| `api` | The API on http://localhost:3000, docs on http://localhost:3000/docs. Connects as `card_api`, with only the privileges it needs. |
 | `mock` | The contract as a Prism mock on http://localhost:4010 |
 
 ### Try it in Swagger
@@ -197,6 +197,7 @@ Each step is one SQL statement, so twelve parallel guesses still get exactly fiv
 ```
 openapi/openapi.yaml     the contract; everything below is driven by it
 db/migrations/           SQL migrations, applied in name order
+db/init/                 local only: creates the API's database login on first start
 src/
   app.ts                 builds the Fastify app from the spec (used by server and tests)
   server.ts              process entry: config, logging, graceful shutdown
@@ -242,6 +243,7 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 | Guessing activation digits | 5 wrong attempts lock the card (one atomic `UPDATE`, safe under concurrency), plus a per-user rate limit. |
 | Malformed or oversized input | Every request is validated against the contract: unknown fields are rejected, non-JSON bodies get `415`, bodies over 1 KiB get `413`. Bodies with `__proto__` keys are rejected (prototype pollution). |
 | SQL injection | Every query is parameterized; user input is never put into SQL text. |
+| A bug or breach in the app reaching the data | The app connects as `card_api`, which can read the tables and update three columns of `cards`, nothing else ([migration 003](db/migrations/003_app_role.sql)). Migrations run as the schema owner. The whole test suite runs as this role, so it proves the app needs no more. |
 | Slow clients and slow queries | Requests time out after 10 s; queries are cancelled after 5 s and idle transactions after 10 s, so one request cannot hold a connection. |
 | Leaking internals | Unexpected errors return a generic `500`; the details go to the log with the request id. |
 | Browsers and caches | `Cache-Control: no-store`, `nosniff`, HSTS, and a content security policy that lets an API response run nothing. `/docs` gets its own narrow policy and cannot be framed. |
@@ -249,7 +251,7 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 | A compromised container | The image runs as a non-root user; in Compose the app containers have a read-only filesystem, no Linux capabilities and no privilege escalation. |
 | Demo shortcuts in production | Demo mode is off unless `DEMO_MODE=true`, logs a warning when on, and its tokens only reach the seeded demo users ([ADR 0009](docs/adr/0009-demo-tokens-outside-the-contract.md)). |
 
-Before production, see "With more time": a real identity provider with asymmetric keys, separate database roles for migrations and for the app, a shared rate-limit store and a WAF in front, secrets in Secrets Manager, and `/docs` off or behind sign-in.
+Before production, see "With more time": a real identity provider with asymmetric keys, a shared rate-limit store and a WAF in front, and secrets in Secrets Manager. Set `DOCS_ENABLED=false` if the API is not meant to be public.
 
 ## Logging and tracing a request
 
@@ -283,7 +285,7 @@ Every push runs on Node 26, the version in `.nvmrc`. Node 26 becomes LTS at the 
 | Contract, lint, types and build | The spec is invalid, `src/generated/api.ts` is out of date with it, lint or types fail, the production build breaks, or a production dependency has a known high-severity vulnerability (`npm audit --omit=dev`) |
 | Tests | Any test fails, against a real Postgres in Testcontainers |
 | docker compose up | The stack does not start from scratch, or [`scripts/docker-smoke.sh`](scripts/docker-smoke.sh) cannot call the API as a seeded user or reach the mock |
-| No breaking API changes (pull requests) | [`oasdiff`](https://github.com/oasdiff/oasdiff) finds a breaking change against `main`: a removed field, a field that became optional, a new required input. The app already in users' phones would break. Adding fields and endpoints passes. Verified with a test pull request that made `spend.remaining` optional. |
+| No breaking API changes (pull requests) | [`oasdiff`](https://github.com/oasdiff/oasdiff) finds a breaking change against `main`: a removed field, a field that became optional, a new required input. The app already in users' phones would break. Adding fields and endpoints passes. Verified with a test pull request that made `spend.remaining` optional. How to make a breaking change anyway: [ADR 0010](docs/adr/0010-evolving-the-api-without-breaking-apps.md). |
 
 The workflow token is read-only, and every action is pinned to a commit, so a moved tag cannot change what runs.
 
@@ -298,10 +300,9 @@ The workflow token is read-only, and every action is pinned to a commit, so a mo
 
 **Platform**
 - Real identity provider (BankID via an OIDC provider) with short-lived tokens and refresh; asymmetric keys (RS256/ES256) so services can verify without the secret.
-- Separate database roles: one that owns the schema and runs migrations, and one for the app with only the reads and writes it needs.
 - A shared rate-limit store (Redis) once there is more than one instance, and a per-IP limit at the edge (API Gateway or WAF) before requests reach the service.
 - Idempotency keys on POSTs for payments-style operations.
-- Turn `/docs` off, or put it behind auth, in production if the API is not meant to be public.
+- `/docs` behind sign-in for internal users, instead of only on or off (`DOCS_ENABLED`).
 - Observability: OpenTelemetry traces (W3C `traceparent` next to `X-Request-Id`), RED metrics per route, alerts on 5xx and latency.
 - Push updates (SSE or push notifications) when a transaction arrives, so the app does not have to reload the overview to see it.
 - Deploy: the image on ECS Fargate behind API Gateway or an ALB, RDS PostgreSQL, secrets in Secrets Manager, infrastructure as code (CDK), migrations as a pipeline step before the new version takes traffic. Set Fastify's `trustProxy` to the load balancer, so logs show the client's IP.
@@ -313,6 +314,5 @@ The workflow token is read-only, and every action is pinned to a commit, so a mo
 
 **Process**
 - Contract tests in the frontend's CI too (e.g. against the Prism mock).
-- A versioning policy for when a breaking change is truly needed: a new field next to the old one, deprecation, then removal once old app versions are gone.
 - Generate a typed client for the app from the same spec.
 - Generic resource endpoints (`/cards/{id}`, `/invoices`) once a second screen needs them.

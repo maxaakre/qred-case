@@ -80,6 +80,19 @@ info:
     **`null`** means "nothing to show", such as no card or no invoice due. It is
     never an error.
 
+    ## Staying compatible
+
+    New fields, endpoints and enum values are added without a new version, so
+    apps already installed keep working:
+
+    - **Ignore fields you do not know.**
+    - **Handle enum values you do not know**, for example a card status: show a
+      neutral state instead of crashing.
+
+    Fields are never removed or renamed in `/v1`. When a field is replaced, the
+    old one is marked `deprecated` and keeps working until the app no longer
+    uses it.
+
     ## Auth
 
     Every endpoint except `/health` needs `Authorization: Bearer <token>`.
