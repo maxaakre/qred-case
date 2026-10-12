@@ -80,7 +80,8 @@ services:
 
   # The contract as a mock server, for frontend work without the backend.
   mock:
-    # Same version as the dev dependency; 5.15.10 crashes on start.
+    # Older than the dev dependency (5.16.0), which has no Docker image yet; 5.15.10 crashes on start.
+    # Both serve the same contract.
     image: stoplight/prism:5.14.2
     # Published for amd64 only; Apple Silicon runs it emulated.
     platform: linux/amd64
