@@ -4,15 +4,46 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "spec:lint": "redocly lint openapi/openapi.yaml",
+    "spec:types": "openapi-typescript openapi/openapi.yaml -o src/generated/api.ts",
     "mock": "prism mock openapi/openapi.yaml",
-    "db:up": "docker compose up -d --wait"
+    "db:up": "docker compose up -d --wait",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "token": "tsx scripts/token.ts"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@redocly/cli": "^2.62.1",
-    "@stoplight/prism-cli": "^5.14.2"
+    "@stoplight/prism-cli": "^5.14.2",
+    "@testcontainers/postgresql": "^12.2.0",
+    "@types/node": "^26.6.5",
+    "@types/pg": "^8.23.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "eslint": "^10.12.0",
+    "openapi-typescript": "^7.13.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3",
+    "yaml": "^2.9.1"
+  },
+  "dependencies": {
+    "fastify": "^5.12.5",
+    "fastify-openapi-glue": "^4.11.5",
+    "jose": "^6.2.12",
+    "pg": "^8.23.1",
+    "zod": "^4.6.6"
   }
 }
