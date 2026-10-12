@@ -35,6 +35,9 @@ export interface paths {
          * Companies the user belongs to (the company dropdown)
          * @description Sorted by name. Never paginated: a user belongs to a handful of
          *     companies. An empty `items` means the user belongs to no company.
+         *
+         *     There is no user id in the path: the user comes from the token. That
+         *     way no one can ask for another user's companies by changing the URL.
          */
         get: operations["listMyCompanies"];
         put?: never;
