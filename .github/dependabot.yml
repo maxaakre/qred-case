@@ -8,6 +8,11 @@ updates:
       # One pull request for minor and patch updates; majors arrive one by one.
       minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # openapi-typescript and typescript-eslint do not support TypeScript 7 yet (npm ci fails).
+      # Upgrade by hand once they do.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
@@ -19,5 +24,5 @@ updates:
     directory: /
     schedule: { interval: weekly }
     ignore:
-      # Keep Prism in step with the dev dependency by hand; 5.15.10 crashes on start.
+      # Updated by hand: 5.15.10 crashes on start, and newer versions may have no image yet.
       - dependency-name: stoplight/prism
