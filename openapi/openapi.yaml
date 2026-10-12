@@ -140,8 +140,8 @@ paths:
         The user proves they have the physical card by entering its last 4
         digits (they are hidden in the app while the card is `INACTIVE`).
 
-        - Idempotent: an already `ACTIVE` card returns `200`, so a double tap
-          or a network retry is safe.
+        - Idempotent: an already `ACTIVE` card with the right digits returns
+          `200`, so a double tap or a network retry is safe.
         - Only the card holder can activate. Other users get `404`.
         - Wrong digits return `422` with `attemptsRemaining`.
         - After 5 wrong attempts activation is locked (`423`) until support
@@ -170,6 +170,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/WrongActivationDigits' }
         '423': { $ref: '#/components/responses/ActivationLocked' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
 
 components:
   securitySchemes:
@@ -374,7 +375,9 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
-      description: The card is in a state that cannot be activated (FROZEN or CLOSED)
+      description: |
+        The card cannot be activated: it is FROZEN or CLOSED, or already
+        ACTIVE and the digits do not match.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -385,6 +388,11 @@ components:
           schema: { $ref: '#/components/schemas/ActivationProblem' }
     ActivationLocked:
       description: Too many wrong attempts. Only support can unlock activation.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnsupportedMediaType:
+      description: The body is not application/json
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

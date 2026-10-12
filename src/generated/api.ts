@@ -106,8 +106,8 @@ export interface paths {
          * @description The user proves they have the physical card by entering its last 4
          *     digits (they are hidden in the app while the card is `INACTIVE`).
          *
-         *     - Idempotent: an already `ACTIVE` card returns `200`, so a double tap
-         *       or a network retry is safe.
+         *     - Idempotent: an already `ACTIVE` card with the right digits returns
+         *       `200`, so a double tap or a network retry is safe.
          *     - Only the card holder can activate. Other users get `404`.
          *     - Wrong digits return `422` with `attemptsRemaining`.
          *     - After 5 wrong attempts activation is locked (`423`) until support
@@ -282,7 +282,10 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description The card is in a state that cannot be activated (FROZEN or CLOSED) */
+        /**
+         * @description The card cannot be activated: it is FROZEN or CLOSED, or already
+         *     ACTIVE and the digits do not match.
+         */
         Conflict: {
             headers: {
                 [name: string]: unknown;
@@ -302,6 +305,15 @@ export interface components {
         };
         /** @description Too many wrong attempts. Only support can unlock activation. */
         ActivationLocked: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description The body is not application/json */
+        UnsupportedMediaType: {
             headers: {
                 [name: string]: unknown;
             };
@@ -461,6 +473,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            415: components["responses"]["UnsupportedMediaType"];
             422: components["responses"]["WrongActivationDigits"];
             423: components["responses"]["ActivationLocked"];
         };

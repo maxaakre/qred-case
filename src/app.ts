@@ -31,6 +31,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
   });
   app.decorateRequest('userId', '');
+  // The spec only defines JSON bodies, and only JSON bodies are validated against it.
+  // Without this, a text/plain body would skip validation entirely.
+  app.removeContentTypeParser('text/plain');
   registerProblemHandlers(app);
   await app.register(openapiGlue, {
     specification: SPEC,

@@ -60,6 +60,15 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     expect(expectContract(res, 'activateCard')).toMatchObject({ status: 'ACTIVE' });
   });
 
+  it('returns 409, not 200, for wrong digits on a card that is already active', async () => {
+    const { user, card } = await holderOf('ACTIVE');
+
+    const res = await activate(user, card, { last4: '0000' });
+
+    expect(res.statusCode).toBe(409);
+    expectContract(res, 'activateCard');
+  });
+
   it.each(['FROZEN', 'CLOSED'] as const)('returns 409 for a %s card', async (status) => {
     const { user, card } = await holderOf(status);
 
@@ -134,5 +143,19 @@ describe('POST /v1/cards/{cardId}/activation', () => {
 
     expect(res.statusCode).toBe(400);
     expectContract(res, 'activateCard');
+  });
+
+  it('answers a non-JSON body with a standard problem title', async () => {
+    const { user, card } = await holderOf('INACTIVE');
+
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: `/v1/cards/${card}/activation`,
+      headers: { authorization: `Bearer ${await ctx.token(user)}`, 'content-type': 'text/plain' },
+      payload: '4821',
+    });
+
+    expect(res.statusCode).toBe(415);
+    expect(expectContract(res, 'activateCard')).toMatchObject({ status: 415, title: 'Unsupported Media Type' });
   });
 });

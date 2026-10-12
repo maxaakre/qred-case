@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import { MAX_ACTIVATION_ATTEMPTS } from './domain/card-rules.js';
+import { activationBlockedReason, MAX_ACTIVATION_ATTEMPTS } from './domain/card-rules.js';
 import type { components } from './generated/api.js';
 import { toCard } from './overview.js';
 import { HttpProblem, notFound } from './problem.js';
@@ -22,12 +22,21 @@ export function activationService(pool: pg.Pool) {
         });
       }
 
-      // Neither update matched: work out why from the card's current state.
+      // Neither update matched: work out why from the card's current state,
+      // using the same rule the overview shows the app.
       const card = await cards.findHeldCard(cardId, userId);
       if (!card) throw notFound('Card not found');
-      if (card.status === 'ACTIVE') return toCard(card); // idempotent: a retry or double tap
-      if (card.status !== 'INACTIVE') throw new HttpProblem(409, 'Conflict', `A ${card.status} card cannot be activated`);
-      throw new HttpProblem(423, 'Locked', 'Too many wrong attempts. Contact support to unlock activation.');
+      // Idempotent: a retry or double tap with the right digits.
+      if (card.status === 'ACTIVE' && card.last4 === last4) return toCard(card);
+      switch (activationBlockedReason(card)) {
+        case 'LOCKED':
+          throw new HttpProblem(423, 'Locked', 'Too many wrong attempts. Contact support to unlock activation.');
+        case 'NOT_INACTIVE':
+          throw new HttpProblem(409, 'Conflict', `A ${card.status} card cannot be activated`);
+        default:
+          // The card changed between our statements (e.g. support unlocked it). Safe to retry.
+          throw new HttpProblem(409, 'Conflict', 'The card changed during activation. Try again.');
+      }
     },
   };
 }

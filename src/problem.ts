@@ -1,4 +1,5 @@
 import type { FastifyError, FastifyInstance } from 'fastify';
+import { STATUS_CODES } from 'node:http';
 
 /** An error that becomes an RFC 9457 problem+json response. */
 export class HttpProblem extends Error {
@@ -24,7 +25,9 @@ export function registerProblemHandlers(app: FastifyInstance) {
     } else if ((err as FastifyError).statusCode === 401) {
       problem = new HttpProblem(401, 'Unauthorized', 'Missing or invalid bearer token');
     } else if ((err as FastifyError).statusCode && (err as FastifyError).statusCode! < 500) {
-      problem = new HttpProblem((err as FastifyError).statusCode!, err.name, err.message);
+      const status = (err as FastifyError).statusCode!;
+      // The standard reason phrase, never an internal class name (RFC 9457).
+      problem = new HttpProblem(status, STATUS_CODES[status] ?? 'Client Error', err.message);
     } else {
       // Never leak internals; the log has the details.
       req.log.error({ err }, 'Unhandled error');
