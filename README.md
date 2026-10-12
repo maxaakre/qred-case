@@ -27,9 +27,8 @@ docker compose up
 
 Open http://localhost:3000/docs. Demo mode is on in `docker compose` ([ADR 0009](docs/adr/0009-demo-tokens-outside-the-contract.md)), so everything happens in the browser:
 
-1. **Get a token.** Open **Demo → `POST /demo/token`**, click **Try it out**, keep `{"user": "anna"}` and click **Execute**. Copy `token` from the response.
-2. **Sign in.** Click **Authorize** at the top, paste the token, click **Authorize** and **Close**.
-3. **Call the API.** Every operation has the demo ids filled in: click **Try it out**, then **Execute**.
+1. **Sign in.** Open **Demo → `POST /demo/token`**, keep `{"user": "anna"}` and click **Execute**. The page signs you in with the returned token: the locks close. Nothing to copy.
+2. **Call the API.** Every operation is ready, with the demo ids filled in: open it and click **Execute**.
 
 | Operation | What you see as Anna |
 |---|---|
@@ -37,7 +36,7 @@ Open http://localhost:3000/docs. Demo mode is on in `docker compose` ([ADR 0009]
 | `GET /v1/companies/{companyId}/card-overview` | The design: active card •••• 4821, 5 400 of 10 000 kr remaining, invoice due, 3 latest transactions of 57 |
 | `GET /v1/cards/{cardId}/transactions` | The first 20 transactions; pass `nextCursor` as `cursor` for the next page |
 
-4. **Activate a card.** Repeat steps 1–2 with `{"user": "erik"}`. Open `POST /v1/cards/{cardId}/activation` (Erik's card is filled in) and pick a body from **Examples**:
+3. **Activate a card.** Run step 1 again with `{"user": "erik"}`. Open `POST /v1/cards/{cardId}/activation` (Erik's card is filled in) and pick a body from **Examples**:
 
 | Example | Result |
 |---|---|

@@ -18,6 +18,12 @@ describe('demo tokens, DEMO_MODE off (the default)', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it('does not sign anyone in automatically', async () => {
+    const page = await ctx.app.inject({ method: 'GET', url: '/docs/static/swagger-initializer.js' });
+
+    expect(page.body).not.toContain('preauthorizeApiKey');
+  });
+
   // Without demo mode /docs is exactly openapi.yaml, so this also keeps demo data out of the contract.
   it('does not show it, or any demo data, in the docs', async () => {
     const spec = (await ctx.app.inject({ method: 'GET', url: '/docs/json' })).json();
@@ -59,6 +65,13 @@ describe('demo tokens, DEMO_MODE on', () => {
     const spec = (await ctx.app.inject({ method: 'GET', url: '/docs/json' })).json();
 
     expect(spec.paths['/demo/token'].post.security).toEqual([]);
+  });
+
+  it('signs in with the token as soon as POST /demo/token succeeds, so there is nothing to copy', async () => {
+    const page = await ctx.app.inject({ method: 'GET', url: '/docs/static/swagger-initializer.js' });
+
+    expect(page.body).toMatch(/preauthorizeApiKey\(["']bearerAuth["']/);
+    expect(page.body).toContain('/demo/token');
   });
 
   it("prefills the demo ids, with Erik's inactive card for activation", async () => {

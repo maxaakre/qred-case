@@ -1,3 +1,4 @@
+import type { FastifySwaggerUiConfigOptions } from '@fastify/swagger-ui';
 import type { FastifyInstance } from 'fastify';
 import { signDevToken } from './dev-token.js';
 
@@ -75,7 +76,13 @@ export function withDemoDocs(spec: Readonly<Record<string, unknown>>): Record<st
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const docs: any = structuredClone(spec);
 
-  docs.tags = [{ name: 'Demo', description: 'Demo mode only. Get a token, click Authorize and paste it.' }, ...(docs.tags ?? [])];
+  docs.tags = [
+    {
+      name: 'Demo',
+      description: 'Start here. Execute `POST /demo/token` and you are signed in: the locks close. Run it again with `erik` to try activation.',
+    },
+    ...(docs.tags ?? []),
+  ];
   docs.paths = { '/demo/token': { post: demoTokenOperation }, ...docs.paths };
 
   docs.components.parameters.CompanyId.example = DEMO.companyAb;
@@ -92,10 +99,50 @@ export function withDemoDocs(spec: Readonly<Record<string, unknown>>): Record<st
   return docs;
 }
 
+// Browser globals for the functions in `demoDocsUiConfig`, which run in Swagger UI, not in Node.
+type SwaggerUiPlugin = NonNullable<FastifySwaggerUiConfigOptions['plugins']>[number];
+declare const SwaggerUIBundle: { plugins: { DownloadUrl: SwaggerUiPlugin } };
+interface SwaggerSystem {
+  preauthorizeApiKey(scheme: string, value: string): void;
+}
+interface DemoWindow {
+  demoSwagger?: SwaggerSystem;
+}
+
+/**
+ * Swagger UI settings in demo mode: when POST /demo/token succeeds, sign in with the
+ * returned token, so the flow is "Execute" and go, with nothing to copy into Authorize.
+ * @fastify/swagger-ui writes these functions into the page as source, so they must not
+ * use anything from this module.
+ */
+export const demoDocsUiConfig: FastifySwaggerUiConfigOptions = {
+  plugins: [
+    // Swagger UI's default plugin; setting `plugins` replaces the defaults.
+    function downloadUrl(system: unknown) {
+      return SwaggerUIBundle.plugins.DownloadUrl(system);
+    },
+    // Keeps Swagger UI's system object, which the response interceptor signs in with.
+    function keepSystem() {
+      return {
+        afterLoad(system: SwaggerSystem) {
+          (window as DemoWindow).demoSwagger = system;
+        },
+      };
+    },
+  ],
+  responseInterceptor: function (res) {
+    const token = res.body?.token;
+    if (res.ok && res.url.endsWith('/demo/token') && typeof token === 'string') {
+      (window as DemoWindow).demoSwagger?.preauthorizeApiKey('bearerAuth', token);
+    }
+    return res;
+  },
+};
+
 const demoTokenOperation = {
   tags: ['Demo'],
   summary: 'Get a token for a demo user',
-  description: 'Copy `token`, click **Authorize** and paste it. Use `erik` to try activation.',
+  description: 'Signs you in on this page as soon as it succeeds (the locks close). `anna` sees the design; use `erik` to try activation.',
   operationId: 'getDemoToken',
   // No lock: this is how you get a token in the first place.
   security: [],

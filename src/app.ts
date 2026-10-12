@@ -9,7 +9,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSecurityHandlers } from './auth.js';
 import type { Config } from './config.js';
-import { registerDemoRoutes, withDemoDocs } from './demo.js';
+import { demoDocsUiConfig, registerDemoRoutes, withDemoDocs } from './demo.js';
 import { docsTheme } from './docs-theme.js';
 import { createHandlers } from './handlers.js';
 import { HttpProblem, registerProblemHandlers } from './problem.js';
@@ -88,6 +88,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       displayRequestDuration: true,
       // The guide and the operations come first; schemas stay folded at the bottom.
       defaultModelsExpandDepth: 0,
+      ...(deps.config.demoMode && demoDocsUiConfig),
     },
     ...(deps.config.demoMode && { transformSpecification: withDemoDocs }),
   });
