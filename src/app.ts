@@ -51,6 +51,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         keywords: ['example'],
         // Reject unknown fields instead of silently dropping them (Fastify's default).
         removeAdditional: false,
+        // Report every invalid field at once. Safe here: bodies are capped at 1 KiB.
+        allErrors: true,
       },
     },
   });

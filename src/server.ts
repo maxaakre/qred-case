@@ -20,6 +20,16 @@ const app = await buildApp({
 // drops that client and opens a new one on the next request.
 pool.on('error', (err) => app.log.error({ err }, 'Idle database client failed'));
 
+// An error outside any request (a promise nobody awaited, a throw in a timer) leaves the
+// process in an unknown state. Log it, then exit so Docker or ECS starts a clean one.
+// Errors inside requests never get here: Fastify sends them to the error handler.
+for (const event of ['uncaughtException', 'unhandledRejection'] as const) {
+  process.once(event, (err) => {
+    app.log.fatal({ err }, `${event}: exiting`);
+    process.exit(1);
+  });
+}
+
 // Finish in-flight requests and close the pool on shutdown (e.g. a Kubernetes rollout).
 // Below Docker's 10 s stop grace period, so the timeout is logged before the process is killed.
 const SHUTDOWN_TIMEOUT_MS = 8_000;

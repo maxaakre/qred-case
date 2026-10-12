@@ -232,8 +232,9 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 - Concurrent activation attempts cannot get extra guesses: the counter is one atomic `UPDATE`.
 - Activation is also **rate limited per user** across all their cards (10 per 15 minutes by default) → **429** with `Retry-After`. It counts after the token check, so nobody can use up another user's attempts. The lockout protects one card; the rate limit protects the service.
 - Every response has `Cache-Control: no-store`, so no proxy or device cache keeps personal financial data.
+- Invalid input gets `400` with an `errors` list: every invalid field at once, where it is (`body`, `query`, `path`) and what is wrong, so the app can mark the right fields. A method the route does not take gets `405` with an `Allow` header; an unknown route gets `404` naming it.
 - Unknown request fields are rejected, not silently dropped. Non-JSON bodies get **415** instead of skipping validation. Tokens without an expiry or with a non-uuid subject are rejected.
-- Database down → `/health` returns **503**. A dropped idle connection is logged, not a crash; a failed transaction keeps its original error and the broken connection is discarded. Unexpected errors return a generic 500 and are logged, never leaked.
+- Database down → `/health` returns **503**. A dropped idle connection is logged, not a crash; a failed transaction keeps its original error and the broken connection is discarded. Unexpected errors return a generic 500 and are logged, never leaked, and the app keeps serving (tested with a dead database). An error outside any request is logged as fatal and the process exits, so the platform starts a clean one.
 
 ## Security
 

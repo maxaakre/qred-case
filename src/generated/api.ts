@@ -343,6 +343,18 @@ export interface components {
             detail?: string;
             /** @description The request path */
             instance?: string;
+            /**
+             * @description On `400`: every invalid input at once, so the app can mark each field.
+             *     `message` is English for developers, like `detail`.
+             */
+            errors?: {
+                /** @enum {string} */
+                in: "body" | "query" | "path" | "header";
+                /** @example last4 */
+                field: string;
+                /** @example is required */
+                message: string;
+            }[];
         };
         ActivationProblem: components["schemas"]["Problem"] & {
             /** @description Wrong attempts left before activation locks. At 0 the next attempt gets `423`. */
@@ -361,8 +373,20 @@ export interface components {
                  *       "type": "about:blank",
                  *       "title": "Bad Request",
                  *       "status": 400,
-                 *       "detail": "Invalid cursor",
-                 *       "instance": "/v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a01/transactions"
+                 *       "detail": "last4 is required; pin is not allowed",
+                 *       "instance": "/v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a02/activation",
+                 *       "errors": [
+                 *         {
+                 *           "in": "body",
+                 *           "field": "last4",
+                 *           "message": "is required"
+                 *         },
+                 *         {
+                 *           "in": "body",
+                 *           "field": "pin",
+                 *           "message": "is not allowed"
+                 *         }
+                 *       ]
                  *     }
                  */
                 "application/problem+json": components["schemas"]["Problem"];
