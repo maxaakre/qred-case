@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestContext, type TestContext } from './context.js';
 import { expectContract } from './contract.js';
@@ -39,6 +40,13 @@ describe('authentication', () => {
 
   it('rejects a valid token whose subject is not a user id', async () => {
     const res = await listCompanies(`Bearer ${await ctx.token('not-a-uuid')}`);
+
+    expect(res.statusCode).toBe(401);
+    expectContract(res, 'listMyCompanies');
+  });
+
+  it('rejects a token without an expiry, so no token is valid forever', async () => {
+    const res = await listCompanies(`Bearer ${await ctx.tokenWithoutExpiry(randomUUID())}`);
 
     expect(res.statusCode).toBe(401);
     expectContract(res, 'listMyCompanies');

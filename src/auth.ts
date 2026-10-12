@@ -20,7 +20,11 @@ export function createSecurityHandlers(jwtSecret: string) {
       const header = req.headers.authorization;
       if (!header?.startsWith('Bearer ')) throw Object.assign(new Error('Missing bearer token'), { statusCode: 401 });
       try {
-        const { payload } = await jwtVerify(header.slice(7), key, { algorithms: ['HS256'] });
+        const { payload } = await jwtVerify(header.slice(7), key, {
+          algorithms: ['HS256'],
+          // jose only checks `exp` when present; a token without one would never expire.
+          requiredClaims: ['exp', 'sub'],
+        });
         if (!payload.sub || !UUID.test(payload.sub)) throw new Error('Token subject is not a user id');
         req.userId = payload.sub;
       } catch {

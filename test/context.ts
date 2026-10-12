@@ -22,6 +22,7 @@ export interface TestContext {
   fx: Fixtures;
   token(userId: string, opts?: { expiresIn?: string }): Promise<string>;
   tokenSignedWith(secret: string, userId: string): Promise<string>;
+  tokenWithoutExpiry(userId: string): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -39,6 +40,8 @@ export async function createTestContext(): Promise<TestContext> {
     fx: fixtures(pool),
     token: (userId, opts) => sign(testConfig.jwtSecret, userId, opts?.expiresIn),
     tokenSignedWith: (secret, userId) => sign(secret, userId),
+    tokenWithoutExpiry: (userId) =>
+      new SignJWT({}).setProtectedHeader({ alg: 'HS256' }).setSubject(userId).sign(new TextEncoder().encode(testConfig.jwtSecret)),
     async close() {
       await app.close();
       await pool.end();
