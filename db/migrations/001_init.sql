@@ -38,9 +38,14 @@ CREATE TABLE cards (
   credit_limit_minor  bigint NOT NULL CHECK (credit_limit_minor >= 0),
   spend_limit_minor   bigint NOT NULL CHECK (spend_limit_minor >= 0),
   activated_at        timestamptz,
+  -- Wrong last4 attempts. Activation is locked at the limit set in code;
+  -- support unlocks by resetting this to 0.
+  failed_activation_attempts integer NOT NULL DEFAULT 0 CHECK (failed_activation_attempts >= 0),
   created_at          timestamptz NOT NULL DEFAULT now(),
   CHECK (spend_limit_minor <= credit_limit_minor),
-  CHECK ((status = 'INACTIVE') = (activated_at IS NULL))
+  -- A card lost before activation can be CLOSED without ever being activated.
+  CHECK (status <> 'INACTIVE' OR activated_at IS NULL),
+  CHECK (status NOT IN ('ACTIVE', 'FROZEN') OR activated_at IS NOT NULL)
 );
 CREATE INDEX cards_company_holder_idx ON cards (company_id, holder_user_id);
 

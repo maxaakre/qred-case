@@ -82,9 +82,16 @@ paths:
         user's card in the selected company with spend, latest transactions,
         the next invoice due and which actions are allowed.
 
-        If the user is a member of the company but has no card there, `card`
-        and everything that depends on it is `null`, so the app can show an
+        Card selection: the user's most recently created card in the company
+        that is not `CLOSED`. `FROZEN` cards are shown so the user understands
+        why the card does not work.
+
+        If the user is a member of the company but has no such card, `card`,
+        `spend` and `latestTransactions` are `null`, so the app can show an
         empty state instead of an error.
+
+        All numbers are read from one database snapshot, so `spend`,
+        `latestTransactions` and `totalCount` always agree with each other.
       parameters:
         - $ref: '#/components/parameters/CompanyId'
       responses:
@@ -130,11 +137,27 @@ paths:
       tags: [Cards]
       summary: Activate the card ("Activate card" button)
       description: |
-        Idempotent. Activating an already active card returns `200` with the
-        card, so a double tap or a network retry is safe. Only the card holder
-        can activate, and only from `INACTIVE` (or already `ACTIVE`).
+        The user proves they have the physical card by entering its last 4
+        digits (they are hidden in the app while the card is `INACTIVE`).
+
+        - Idempotent: an already `ACTIVE` card returns `200`, so a double tap
+          or a network retry is safe.
+        - Only the card holder can activate. Other users get `404`.
+        - Wrong digits return `422` with `attemptsRemaining`.
+        - After 5 wrong attempts activation is locked (`423`) until support
+          unlocks it.
       parameters:
         - $ref: '#/components/parameters/CardId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [last4]
+              properties:
+                last4: { type: string, pattern: '^[0-9]{4}$', example: '4821' }
       responses:
         '200':
           description: The card is active
@@ -145,6 +168,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/WrongActivationDigits' }
+        '423': { $ref: '#/components/responses/ActivationLocked' }
 
 components:
   securitySchemes:
@@ -194,7 +219,12 @@ components:
       required: [id, last4, status, imageUrl]
       properties:
         id: { type: string, format: uuid }
-        last4: { type: string, pattern: '^[0-9]{4}$', example: '4821' }
+        last4:
+          type: string
+          nullable: true
+          pattern: '^[0-9]{4}$'
+          example: '4821'
+          description: null while the card is INACTIVE (the digits are the activation proof)
         status: { $ref: '#/components/schemas/CardStatus' }
         imageUrl: { type: string, format: uri }
 
@@ -256,9 +286,17 @@ components:
     Actions:
       type: object
       description: Decided by the backend so business rules live in one place
-      required: [canActivateCard]
+      required: [canActivateCard, activationBlockedReason]
       properties:
         canActivateCard: { type: boolean }
+        activationBlockedReason:
+          type: string
+          nullable: true
+          enum: [NO_CARD, NOT_INACTIVE, LOCKED, null]
+          description: |
+            Why activation is not possible, so the app can show the right text
+            without its own rules. null when `canActivateCard` is true.
+            LOCKED means too many wrong attempts: show "Contact support".
 
     Support:
       type: object
@@ -280,7 +318,9 @@ components:
         invoiceDue:
           type: object
           nullable: true
-          description: The oldest unpaid invoice. null when nothing is due.
+          description: |
+            The oldest unpaid invoice. null when nothing is due, or when the
+            user is not OWNER or ADMIN of the company.
           allOf: [{ $ref: '#/components/schemas/InvoiceDue' }]
         spend:
           type: object
@@ -316,6 +356,14 @@ components:
         detail: { type: string }
         instance: { type: string }
 
+    ActivationProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [attemptsRemaining]
+          properties:
+            attemptsRemaining: { type: integer, minimum: 0, maximum: 5 }
+
   responses:
     BadRequest:
       description: Invalid input (bad id, limit or cursor)
@@ -336,6 +384,16 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
       description: The card is in a state that cannot be activated (FROZEN or CLOSED)
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    WrongActivationDigits:
+      description: The digits do not match the card
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ActivationProblem' }
+    ActivationLocked:
+      description: Too many wrong attempts. Only support can unlock activation.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
