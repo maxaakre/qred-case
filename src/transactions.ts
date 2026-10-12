@@ -1,12 +1,12 @@
 import type pg from 'pg';
 import type { components } from './generated/api.js';
-import { toTransaction } from './overview.js';
+import { apiTransaction } from './mappers.js';
 import { HttpProblem, notFound } from './problem.js';
 import { cardsRepository } from './repositories/cards.js';
+import { isUuid } from './uuid.js';
 
 type Schemas = components['schemas'];
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const invalidCursor = () => new HttpProblem(400, 'Bad Request', 'Invalid cursor');
 
 // The cursor is opaque to clients so we can change what is inside without breaking them.
@@ -14,7 +14,7 @@ const encodeCursor = (transactionId: string) => Buffer.from(transactionId).toStr
 
 function decodeCursor(cursor: string): string {
   const id = Buffer.from(cursor, 'base64url').toString('utf8');
-  if (!UUID.test(id)) throw invalidCursor();
+  if (!isUuid(id)) throw invalidCursor();
   return id;
 }
 
@@ -32,7 +32,7 @@ export function transactionsService(pool: pg.Pool) {
       const page = rows.slice(0, limit);
       const last = page.at(-1);
       return {
-        items: page.map(toTransaction),
+        items: page.map(apiTransaction),
         nextCursor: rows.length > limit && last ? encodeCursor(last.id) : null,
       };
     },

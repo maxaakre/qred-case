@@ -1,7 +1,7 @@
 import type pg from 'pg';
 import { activationBlockedReason, MAX_ACTIVATION_ATTEMPTS } from './domain/card-rules.js';
 import type { components } from './generated/api.js';
-import { toCard } from './overview.js';
+import { apiCard } from './mappers.js';
 import { HttpProblem, notFound } from './problem.js';
 import { cardsRepository } from './repositories/cards.js';
 
@@ -13,7 +13,7 @@ export function activationService(pool: pg.Pool) {
   return {
     async activate(userId: string, cardId: string, last4: string): Promise<Schemas['Card']> {
       const activated = await cards.activateIfDigitsMatch(cardId, userId, last4, MAX_ACTIVATION_ATTEMPTS);
-      if (activated) return toCard(activated);
+      if (activated) return apiCard(activated);
 
       const failed = await cards.recordFailedActivation(cardId, userId, last4, MAX_ACTIVATION_ATTEMPTS);
       if (failed !== null) {
@@ -27,7 +27,7 @@ export function activationService(pool: pg.Pool) {
       const card = await cards.findHeldCard(cardId, userId);
       if (!card) throw notFound('Card not found');
       // Idempotent: a retry or double tap with the right digits.
-      if (card.status === 'ACTIVE' && card.last4 === last4) return toCard(card);
+      if (card.status === 'ACTIVE' && card.last4 === last4) return apiCard(card);
       switch (activationBlockedReason(card)) {
         case 'LOCKED':
           throw new HttpProblem(423, 'Locked', 'Too many wrong attempts. Contact support to unlock activation.');

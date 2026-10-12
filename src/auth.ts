@@ -1,7 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import { jwtVerify } from 'jose';
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { isUuid } from './uuid.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -25,7 +24,7 @@ export function createSecurityHandlers(jwtSecret: string) {
           // jose only checks `exp` when present; a token without one would never expire.
           requiredClaims: ['exp', 'sub'],
         });
-        if (!payload.sub || !UUID.test(payload.sub)) throw new Error('Token subject is not a user id');
+        if (!payload.sub || !isUuid(payload.sub)) throw new Error('Token subject is not a user id');
         req.userId = payload.sub;
       } catch {
         throw Object.assign(new Error('Invalid bearer token'), { statusCode: 401 });
