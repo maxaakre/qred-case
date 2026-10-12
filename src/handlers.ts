@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AppDeps } from './app.js';
 import type { components } from './generated/api.js';
+import { notFound } from './problem.js';
 import { companiesRepository } from './repositories/companies.js';
 
 type Schemas = components['schemas'];
@@ -17,6 +18,13 @@ export function createHandlers({ pool }: AppDeps) {
 
     async listMyCompanies(req: FastifyRequest): Promise<{ items: Schemas['CompanySummary'][] }> {
       return { items: await companies.listForUser(req.userId) };
+    },
+
+    async getCardOverview(req: FastifyRequest<{ Params: { companyId: string } }>) {
+      const membership = await companies.findMembership(req.userId, req.params.companyId);
+      // Same answer for "does not exist" and "not yours" (ADR 0005).
+      if (!membership) throw notFound('Company not found');
+      throw new Error('Not implemented');
     },
   };
 }
