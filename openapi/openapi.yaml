@@ -195,13 +195,13 @@ paths:
                       imageUrl: https://cdn.example.com/cards/black.png
                     invoiceDue:
                       id: 01922f6e-9b20-7a00-b222-1d6f2e3c4b01
-                      amount: { minor: 540000, currency: SEK }
+                      amount: { minor: 387500, currency: SEK }
                       dueDate: '2026-10-31'
                       isOverdue: false
                     spend:
-                      spent: { minor: 540000, currency: SEK }
+                      spent: { minor: 460000, currency: SEK }
                       limit: { minor: 1000000, currency: SEK }
-                      remaining: { minor: 460000, currency: SEK }
+                      remaining: { minor: 540000, currency: SEK }
                       periodStart: '2026-10-01'
                       periodEnd: '2026-10-31'
                     latestTransactions:
@@ -273,7 +273,7 @@ paths:
                       imageUrl: https://cdn.example.com/cards/black.png
                     invoiceDue:
                       id: 01922f6e-9b20-7a00-b222-1d6f2e3c4b01
-                      amount: { minor: 540000, currency: SEK }
+                      amount: { minor: 387500, currency: SEK }
                       dueDate: '2026-09-30'
                       isOverdue: true
                     spend:
@@ -521,8 +521,9 @@ components:
     Spend:
       type: object
       description: |
-        The "5 400 / 10 000 kr, based on your set limit" block: spend in the
-        current calendar month (Swedish time) against the limit the user chose.
+        The "Remaining spend: 5 400/10 000 kr, based on your set limit" block,
+        which is `remaining` / `limit`: spend in the current calendar month
+        (Swedish time) against the limit the user chose.
 
         Pending and settled purchases count, refunds reduce spend, declined
         transactions are ignored.

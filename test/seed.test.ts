@@ -18,10 +18,11 @@ describe('demo seed', () => {
 
     const body = expectContract(res, 'getCardOverview');
     expect(body.company.name).toBe('Company AB');
-    expect(body.spend).toMatchObject({ spent: { minor: 540_000 }, limit: { minor: 1_000_000 } });
+    // "Remaining spend: 5 400/10 000 kr" in the design.
+    expect(body.spend).toMatchObject({ remaining: { minor: 540_000 }, limit: { minor: 1_000_000 }, spent: { minor: 460_000 } });
     expect(body.latestTransactions.totalCount).toBe(57);
     expect(body.latestTransactions.items).toHaveLength(3);
-    expect(body.invoiceDue).toMatchObject({ amount: { minor: 540_000 }, isOverdue: false });
+    expect(body.invoiceDue).toMatchObject({ amount: { minor: 387_500 }, isOverdue: false });
   });
 
   it('gives Erik an inactive card to activate', async () => {

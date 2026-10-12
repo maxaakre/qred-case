@@ -34,7 +34,7 @@ Open http://localhost:3000/docs. Demo mode is on in `docker compose` ([ADR 0009]
 | Operation | What you see as Anna |
 |---|---|
 | `GET /v1/me/companies` | Bygg Norr AB and Company AB |
-| `GET /v1/companies/{companyId}/card-overview` | The design: active card •••• 4821, 5 400 of 10 000 kr spent, invoice due, 3 latest transactions of 57 |
+| `GET /v1/companies/{companyId}/card-overview` | The design: active card •••• 4821, 5 400 of 10 000 kr remaining, invoice due, 3 latest transactions of 57 |
 | `GET /v1/cards/{cardId}/transactions` | The first 20 transactions; pass `nextCursor` as `cursor` for the next page |
 
 4. **Activate a card.** Repeat steps 1–2 with `{"user": "erik"}`. Open `POST /v1/cards/{cardId}/activation` (Erik's card is filled in) and pick a body from **Examples**:
@@ -91,7 +91,7 @@ npm run token -- anna
 | Company AB ⌄ | `company`, and the list from `GET /v1/me/companies` |
 | Invoice due › | `invoiceDue` (owners and admins only, `null` when nothing is due) |
 | Card image › | `card.imageUrl`, `card.status`, `card.last4` |
-| 5 400 / 10 000 kr, based on your set limit | `spend.spent`, `spend.limit`, `spend.remaining` |
+| Remaining spend: 5 400/10 000 kr, based on your set limit | `spend.remaining` / `spend.limit` (and `spend.spent`) |
 | Latest transactions | `latestTransactions.items` (3 newest) |
 | 54 more items in transaction view › | `latestTransactions.totalCount − items.length`, then `GET /v1/cards/{cardId}/transactions` |
 | Activate card | `actions.canActivateCard`, `actions.activationBlockedReason`, then `POST /v1/cards/{cardId}/activation` |

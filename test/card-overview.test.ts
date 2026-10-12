@@ -137,18 +137,18 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const { user, company } = await member();
       const card = await ctx.fx.card({ holder: user, company, spendLimit: 1_000_000 });
       await ctx.fx.transaction(card, { amount: -300_000, occurredAt: '2026-10-02T09:00:00Z', status: 'SETTLED' });
-      await ctx.fx.transaction(card, { amount: -290_000, occurredAt: '2026-10-10T09:00:00Z', status: 'PENDING' });
+      await ctx.fx.transaction(card, { amount: -210_000, occurredAt: '2026-10-10T09:00:00Z', status: 'PENDING' });
       await ctx.fx.transaction(card, { amount: 50_000, occurredAt: '2026-10-11T09:00:00Z', status: 'SETTLED' });
       await ctx.fx.transaction(card, { amount: -999_000, occurredAt: '2026-10-11T10:00:00Z', status: 'DECLINED' });
       await ctx.fx.transaction(card, { amount: -400_000, occurredAt: '2026-09-30T21:59:00Z' }); // 23:59 Sep 30 in Stockholm
 
       const body = expectContract(await getOverview(user, company), 'getCardOverview');
 
-      // 3 000 + 2 900 - 500 = 5 400 kr of 10 000 kr: the numbers in the app view.
+      // 3 000 + 2 100 - 500 = 4 600 kr spent, so 5 400 of 10 000 kr remaining: the numbers in the app view.
       expect(body.spend).toMatchObject({
-        spent: { minor: 540_000, currency: 'SEK' },
+        spent: { minor: 460_000, currency: 'SEK' },
         limit: { minor: 1_000_000, currency: 'SEK' },
-        remaining: { minor: 460_000, currency: 'SEK' },
+        remaining: { minor: 540_000, currency: 'SEK' },
       });
     });
 

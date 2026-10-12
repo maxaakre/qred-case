@@ -13,9 +13,9 @@ export async function truncateAll(db: Queryable) {
 }
 
 /**
- * Demo data that reproduces the app view: "Company AB", 5 400 / 10 000 kr spent this
- * month, 57 transactions ("54 more items"), an invoice due, and a second user with an
- * inactive card to demo activation. Dates are relative to now, so the demo works any day.
+ * Demo data that reproduces the app view: "Company AB", "Remaining spend: 5 400/10 000 kr"
+ * (4 600 kr spent this month), 57 transactions ("54 more items"), an invoice due, and a
+ * second user with an inactive card to demo activation. Dates are relative to now, so the demo works any day.
  * Re-running replaces all data.
  */
 export async function seed(pool: pg.Pool, now = new Date()) {
@@ -48,9 +48,9 @@ export async function seed(pool: pg.Pool, now = new Date()) {
       [DEMO.annaCard, DEMO.erikCard, DEMO.companyAb, DEMO.anna, DEMO.erik],
     );
 
-    // This month: purchases and a refund netting exactly 5 400 kr, plus a declined one that must not count.
+    // This month: purchases and a refund netting exactly 4 600 kr (5 400 kr remaining), plus a declined one that must not count.
     const thisMonth: [amount: number, status: string][] = [
-      [-120000, 'SETTLED'], [-89900, 'SETTLED'], [-45000, 'SETTLED'], [-150000, 'SETTLED'],
+      [-120000, 'SETTLED'], [-89900, 'SETTLED'], [-45000, 'SETTLED'], [-70000, 'SETTLED'],
       [-64900, 'SETTLED'], [25000, 'SETTLED'], [-95200, 'PENDING'], [-300000, 'DECLINED'],
     ];
     const elapsed = Math.max(now.getTime() - period.startsAt.getTime(), 60_000);
@@ -74,7 +74,7 @@ export async function seed(pool: pg.Pool, now = new Date()) {
     await client.query(
       `INSERT INTO invoices (company_id, amount_minor, currency, due_date, status) VALUES
          ($1, 412300, 'SEK', $2, 'PAID'),
-         ($1, 540000, 'SEK', $3, 'UNPAID')`,
+         ($1, 387500, 'SEK', $3, 'UNPAID')`,
       [DEMO.companyAb, period.start, period.end],
     );
   });

@@ -207,8 +207,9 @@ export interface components {
             isOverdue: boolean;
         };
         /**
-         * @description The "5 400 / 10 000 kr, based on your set limit" block: spend in the
-         *     current calendar month (Swedish time) against the limit the user chose.
+         * @description The "Remaining spend: 5 400/10 000 kr, based on your set limit" block,
+         *     which is `remaining` / `limit`: spend in the current calendar month
+         *     (Swedish time) against the limit the user chose.
          *
          *     Pending and settled purchases count, refunds reduce spend, declined
          *     transactions are ignored.
