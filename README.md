@@ -29,7 +29,7 @@ Open http://localhost:3000/docs. Demo mode is on in `docker compose` ([ADR 0009]
 
 1. **You are already signed in as Anna** when the page opens: the locks are closed, and the sign-in survives a reload.
 2. **Call the API.** Every operation is ready, with the demo ids filled in: open it and click **Execute**.
-3. **Run one call as someone else.** Every operation has an `X-Demo-User` field: pick `anna` or `erik`, and that call runs as that user. The page turns it into a token before sending; the server never sees the field. To switch user for every call, run **Demo → `POST /demo/token`** with `erik`.
+3. **Bring your own token or user, per call.** Every operation has an `X-Demo-Auth` text field, like the token a real app sends with each request. Paste a token (with or without `Bearer`), or type `anna`, `erik` or a user id; its description says who may call that route. The page turns it into the `Authorization` header before sending: the server never sees the field, and an unknown user gets a clear `401`. To switch user for every call, run **Demo → `POST /demo/token`** with `erik`.
 
 | Operation | What you see as Anna |
 |---|---|
@@ -37,7 +37,7 @@ Open http://localhost:3000/docs. Demo mode is on in `docker compose` ([ADR 0009]
 | `GET /v1/companies/{companyId}/card-overview` | The design: active card •••• 4821, 5 400 of 10 000 kr remaining, invoice due, 3 latest transactions of 57 |
 | `GET /v1/cards/{cardId}/transactions` | The first 20 transactions; pass `nextCursor` as `cursor` for the next page |
 
-4. **Activate a card.** Open `POST /v1/cards/{cardId}/activation`: Erik's card and `X-Demo-User: erik` are filled in. Pick a body from **Examples**:
+4. **Activate a card.** Open `POST /v1/cards/{cardId}/activation`: Erik's card and `X-Demo-Auth: erik` are filled in. Pick a body from **Examples**:
 
 | Example | Result |
 |---|---|

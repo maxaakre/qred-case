@@ -30,7 +30,7 @@ describe('demo tokens, DEMO_MODE off (the default)', () => {
 
     expect(spec.paths['/demo/token']).toBeUndefined();
     expect(JSON.stringify(spec)).not.toContain(DEMO.companyAb);
-    expect(JSON.stringify(spec)).not.toContain('X-Demo-User');
+    expect(JSON.stringify(spec)).not.toContain('X-Demo-Auth');
   });
 });
 
@@ -82,10 +82,10 @@ describe('demo tokens, DEMO_MODE on', () => {
     expect(page.body).toMatch(/"persistAuthorization":true/);
   });
 
-  it('lets every call choose its own demo user, with erik ready for activation', async () => {
+  it('lets every call bring its own token or demo user, and says who may call it', async () => {
     const spec = (await ctx.app.inject({ method: 'GET', url: '/docs/json' })).json();
-    const userParam = (path: string, method: string) =>
-      spec.paths[path][method].parameters.find((p: any) => p.name === 'X-Demo-User');
+    const authField = (path: string, method: string) =>
+      spec.paths[path][method].parameters.find((p: any) => p.name === 'X-Demo-Auth');
 
     for (const [path, method] of [
       ['/v1/me/companies', 'get'],
@@ -93,18 +93,31 @@ describe('demo tokens, DEMO_MODE on', () => {
       ['/v1/cards/{cardId}/transactions', 'get'],
       ['/v1/cards/{cardId}/activation', 'post'],
     ]) {
-      expect(userParam(path!, method!)).toMatchObject({ in: 'header', schema: { enum: ['anna', 'erik'] } });
+      const field = authField(path!, method!);
+      expect(field).toMatchObject({ in: 'header', required: false, schema: { type: 'string' } });
+      expect(field.schema.enum).toBeUndefined(); // free text: a token, a name or a user id
+      expect(field.description).toMatch(/token/i);
     }
-    expect(userParam('/v1/cards/{cardId}/activation', 'post').example).toBe('erik');
+    expect(authField('/v1/cards/{cardId}/activation', 'post')).toMatchObject({ example: 'erik' });
+    expect(authField('/v1/cards/{cardId}/activation', 'post').description).toMatch(/card holder/i);
     expect(spec.paths['/health'].get.parameters ?? []).toEqual([]);
   });
 
-  it('never lets X-Demo-User sign anyone in on the server: the page turns it into a token', async () => {
-    const res = await ctx.app.inject({ method: 'GET', url: '/v1/me/companies', headers: { 'x-demo-user': 'anna' } });
+  it('never lets X-Demo-Auth sign anyone in on the server: the page turns it into a token', async () => {
+    const res = await ctx.app.inject({ method: 'GET', url: '/v1/me/companies', headers: { 'x-demo-auth': 'anna' } });
     const page = await ctx.app.inject({ method: 'GET', url: '/docs/static/swagger-initializer.js' });
 
     expect(res.statusCode).toBe(401);
-    expect(page.body).toContain('X-Demo-User');
+    expect(page.body).toContain('X-Demo-Auth');
+  });
+
+  it('accepts a demo user id as well as a name, but nobody else', async () => {
+    const byId = await getToken(ctx, DEMO.erik);
+    const stranger = await getToken(ctx, '01900000-0000-7000-8000-0000000000ff');
+
+    expect(byId.statusCode).toBe(200);
+    expect(byId.json().userId).toBe(DEMO.erik);
+    expect(stranger.statusCode).toBe(400);
   });
 
   it("prefills the demo ids, with Erik's inactive card for activation", async () => {

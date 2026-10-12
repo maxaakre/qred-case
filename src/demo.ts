@@ -18,7 +18,11 @@ export type DemoUser = keyof typeof DEMO_USERS;
 export const DEMO_USER_NAMES = Object.keys(DEMO_USERS) as DemoUser[];
 const TOKEN_LIFETIME = '12h';
 
-export const isDemoUser = (name: string): name is DemoUser => Object.hasOwn(DEMO_USERS, name);
+/** A demo user by name (`anna`) or by user id, or undefined for anyone else. */
+export function resolveDemoUser(nameOrId: string): DemoUser | undefined {
+  if (Object.hasOwn(DEMO_USERS, nameOrId)) return nameOrId as DemoUser;
+  return DEMO_USER_NAMES.find((name) => DEMO_USERS[name] === nameOrId);
+}
 
 /** A token for a seeded demo user. Shared by POST /demo/token and `npm run token`. */
 export async function signDemoToken(jwt: JwtSettings, user: DemoUser) {
@@ -33,8 +37,8 @@ const requestSchema = {
   properties: {
     user: {
       type: 'string',
-      enum: DEMO_USER_NAMES,
-      description: 'anna: owner, active card. erik: employee, inactive card (last4 7310).',
+      enum: [...DEMO_USER_NAMES, ...Object.values(DEMO_USERS)],
+      description: 'A demo user, by name or user id. anna: owner, active card. erik: employee, inactive card (last4 7310).',
     },
   },
 } as const;
@@ -60,10 +64,11 @@ const responseSchema = {
  */
 export function registerDemoRoutes(app: FastifyInstance, jwt: JwtSettings) {
   app.log.warn('DEMO_MODE is on: anyone can get a token at POST /demo/token. Never enable it in production.');
-  app.post<{ Body: { user: DemoUser } }>(
+  app.post<{ Body: { user: string } }>(
     '/demo/token',
     { schema: { body: requestSchema, response: { 200: responseSchema } } },
-    (req) => signDemoToken(jwt, req.body.user),
+    // The schema only lets demo names and ids through, so the user always resolves.
+    (req) => signDemoToken(jwt, resolveDemoUser(req.body.user)!),
   );
 }
 
@@ -77,13 +82,14 @@ export function withDemoDocs(spec: Readonly<Record<string, unknown>>): Record<st
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const docs: any = structuredClone(spec);
 
-  // Every call that needs a token can run as a chosen demo user, without touching
-  // Authorize. The page turns this header into a token (requestInterceptor below); the
-  // server never sees it.
-  for (const operations of Object.values<Record<string, { security?: unknown[]; parameters?: unknown[] }>>(docs.paths)) {
+  // Every call that needs a token gets a field for its own token or demo user, with a
+  // hint about who may call it. The page turns the field into an Authorization header
+  // (requestInterceptor below); the server never sees it.
+  type Operation = { operationId?: string; security?: unknown[]; parameters?: unknown[] };
+  for (const operations of Object.values<Record<string, Operation>>(docs.paths)) {
     for (const operation of Object.values(operations)) {
       if (operation.security?.length === 0) continue; // public, like /health
-      operation.parameters = [demoUserParameter, ...(operation.parameters ?? [])];
+      operation.parameters = [demoAuthParameter(operation.operationId), ...(operation.parameters ?? [])];
     }
   }
 
@@ -101,7 +107,7 @@ export function withDemoDocs(spec: Readonly<Record<string, unknown>>): Record<st
 
   const activation = docs.paths['/v1/cards/{cardId}/activation'].post;
   activation.parameters = [
-    { ...demoUserParameter, example: 'erik' },
+    { ...demoAuthParameter('activateCard'), example: 'erik' },
     { ...docs.components.parameters.CardId, example: DEMO.erikCard, description: "Erik's inactive card (demo)" },
   ];
   activation.requestBody.content['application/json'].examples = {
@@ -155,19 +161,28 @@ export const demoDocsUiConfig: FastifySwaggerUiConfigOptions = {
       .then((res) => res.json())
       .then((body: { token: string }) => (window as DemoWindow).demoSwagger?.preauthorizeApiKey('bearerAuth', body.token));
   },
-  // X-Demo-User on a call becomes that user's token, for that call only.
+  // X-Demo-Auth becomes the Authorization header for that call only: a pasted token as
+  // it is, a demo user name or id as that user's token. An unknown user sends no token,
+  // so the call gets a clear 401 instead of silently running as someone else.
   requestInterceptor: function (req) {
-    const user = req.headers['X-Demo-User'];
-    if (!user) return req;
-    delete req.headers['X-Demo-User'];
+    const value = String(req.headers['X-Demo-Auth'] ?? '').trim();
+    delete req.headers['X-Demo-Auth'];
+    if (!value) return req;
+    const token = value.replace(/^Bearer\s+/i, '');
+    // A JWT has three dot-separated parts; anything else is a user name or id.
+    if (token.split('.').length === 3) {
+      req.headers.Authorization = `Bearer ${token}`;
+      return req;
+    }
     return fetch('/demo/token', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ user }),
+      body: JSON.stringify({ user: value }),
     })
-      .then((res) => res.json())
+      .then((res) => (res.ok ? res.json() : { token: '' }))
       .then((body: { token: string }) => {
-        req.headers.Authorization = `Bearer ${body.token}`;
+        if (body.token) req.headers.Authorization = `Bearer ${body.token}`;
+        else delete req.headers.Authorization;
         return req;
       });
   },
@@ -180,13 +195,28 @@ export const demoDocsUiConfig: FastifySwaggerUiConfigOptions = {
   },
 };
 
-const demoUserParameter = {
-  name: 'X-Demo-User',
-  in: 'header',
-  required: false,
-  description: 'Demo mode: run this call as this user. Empty uses Authorize.',
-  schema: { type: 'string', enum: DEMO_USER_NAMES },
+/** Who may call each operation, shown next to the X-Demo-Auth field. */
+const WHO_MAY_CALL: Record<string, string> = {
+  listMyCompanies: 'Any signed-in user. `anna` is in two companies, `erik` in one.',
+  getCardOverview: 'A member of the company. `anna` (owner) also sees the invoice; `erik` (employee) does not.',
+  listCardTransactions: 'Only the card holder. The card filled in is `anna`\'s.',
+  activateCard: 'Only the card holder can activate. The card filled in is `erik`\'s.',
 };
+
+function demoAuthParameter(operationId?: string) {
+  return {
+    name: 'X-Demo-Auth',
+    in: 'header',
+    required: false,
+    description: [
+      'Demo mode: who this call runs as. Paste a token (with or without `Bearer`), or type a demo user: `anna`, `erik` or their user id. Empty uses Authorize.',
+      operationId && WHO_MAY_CALL[operationId],
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    schema: { type: 'string' },
+  };
+}
 
 const demoTokenOperation = {
   tags: ['Demo'],
