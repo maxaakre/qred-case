@@ -7,6 +7,7 @@ import { signDevToken } from '../scripts/dev-token.js';
 import { fixtures, type Fixtures } from './fixtures.js';
 
 export const testConfig: Config = {
+  logLevel: 'silent',
   port: 0,
   databaseUrl: inject('databaseUrl'),
   jwtSecret: 'test-secret-test-secret-test-secret',

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const schema = z.object({
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   PORT: z.coerce.number().int().min(0).max(65535).default(3000),
   DATABASE_URL: z.string().url(),
   // HS256 needs a long secret; refuse to start with a weak one.
@@ -14,6 +15,7 @@ const schema = z.object({
 });
 
 export interface Config {
+  logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   port: number;
   databaseUrl: string;
   jwtSecret: string;
@@ -30,6 +32,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   const e = parsed.data;
   return {
+    logLevel: e.LOG_LEVEL,
     port: e.PORT,
     databaseUrl: e.DATABASE_URL,
     jwtSecret: e.JWT_SECRET,

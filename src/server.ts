@@ -9,7 +9,7 @@ const app = await buildApp({
   config,
   now: () => new Date(),
   logger: {
-    level: process.env.LOG_LEVEL ?? 'info',
+    level: config.logLevel,
     // Never write tokens to the logs.
     redact: ['req.headers.authorization'],
   },

@@ -33,6 +33,8 @@ curl -X POST -H "Authorization: Bearer $ERIK" -H 'content-type: application/json
 
 `npm run db:seed` resets the demo data at any time.
 
+**Logs:** `npm run dev` prints readable, coloured logs; `npm start` prints one JSON object per line, as in production. Set the level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
+
 **Frontend without the backend:** `npm run mock` serves the contract with Prism on `http://localhost:4010`.
 
 ## From the screen to the API
@@ -109,6 +111,13 @@ test/                HTTP tests against real Postgres, plus the contract checker
 - Unknown request fields are rejected, not silently dropped. Non-JSON bodies get **415** instead of skipping validation. Tokens without an expiry or with a non-uuid subject are rejected.
 - Database down → `/health` returns **503**. A dropped idle connection is logged, not a crash; a failed transaction keeps its original error and the broken connection is discarded. Unexpected errors return a generic 500 and are logged, never leaked.
 
+## Logging and tracing a request
+
+- **Every response has an `X-Request-Id`.** The app can send its own; otherwise the backend creates a uuid. The same id is on every log line for that request (`reqId`), so a user's error can be found in the logs from one value.
+- An incoming id is only trusted if it is short and plain (letters, digits, `.`, `_`, `-`, max 128). Anything else, such as a line break that could fake log lines, is replaced.
+- **Levels mean something:** `error` is a bug or an outage (unhandled error with stack trace, lost database connection), `warn` is degraded (health check cannot reach the database), `info` is one line in and one line out per request. Expected 4xx answers are not errors, so they do not trigger alerts.
+- The `Authorization` header is redacted from the logs. `LOG_LEVEL` is validated at startup like the rest of the config.
+
 ## Testing
 
 ```bash
@@ -141,7 +150,7 @@ On pull requests, [`oasdiff`](https://github.com/oasdiff/oasdiff) compares the s
 - Real identity provider (BankID via an OIDC provider) with short-lived tokens and refresh; asymmetric keys (RS256/ES256) so services can verify without the secret.
 - A shared rate-limit store (Redis) once there is more than one instance, and a per-IP limit at the edge (API Gateway or WAF) before requests reach the service.
 - Idempotency keys on POSTs for payments-style operations.
-- Observability: OpenTelemetry traces, RED metrics per route, alerts on 5xx and latency; correlation id from the app through the logs.
+- Observability: OpenTelemetry traces (W3C `traceparent` next to `X-Request-Id`), RED metrics per route, alerts on 5xx and latency.
 - `ETag` / `Cache-Control` on the overview; push updates (SSE or push notifications) when a transaction arrives.
 - Deploy: container on ECS Fargate or Lambda behind API Gateway, RDS PostgreSQL, secrets in Secrets Manager, infrastructure as code (CDK), migrations as a pipeline step.
 

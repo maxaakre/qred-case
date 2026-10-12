@@ -2,6 +2,7 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import openapiGlue from 'fastify-openapi-glue';
 import type pg from 'pg';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createSecurityHandlers } from './auth.js';
 import type { Config } from './config.js';
@@ -9,6 +10,9 @@ import { createHandlers } from './handlers.js';
 import { HttpProblem, registerProblemHandlers } from './problem.js';
 
 const SPEC = fileURLToPath(new URL('../openapi/openapi.yaml', import.meta.url));
+
+/** A caller's request id is trusted only if it cannot forge log lines or bloat them. */
+const SAFE_REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/;
 
 export interface AppDeps {
   pool: pg.Pool;
@@ -22,6 +26,13 @@ export interface AppDeps {
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     logger: deps.logger ?? false,
+    // Correlation id: reuse the app's X-Request-Id, or create one. Pino puts it on
+    // every log line as `reqId`, and it goes back in the response header.
+    requestIdHeader: false,
+    genReqId: (req) => {
+      const id = req.headers['x-request-id'];
+      return typeof id === 'string' && SAFE_REQUEST_ID.test(id) ? id : randomUUID();
+    },
     ajv: {
       customOptions: {
         // `example` is documentation in the spec, not validation.
@@ -32,6 +43,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
   });
   app.decorateRequest('userId', '');
+  // onSend runs for every response, errors included: that is where support needs the id.
+  app.addHook('onSend', async (req, reply) => {
+    reply.header('x-request-id', req.id);
+  });
   // The spec only defines JSON bodies, and only JSON bodies are validated against it.
   // Without this, a text/plain body would skip validation entirely.
   app.removeContentTypeParser('text/plain');

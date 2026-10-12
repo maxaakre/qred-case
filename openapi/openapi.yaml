@@ -16,6 +16,9 @@ info:
     - Timestamps are ISO 8601 in UTC. Dates without time are `YYYY-MM-DD`.
     - Errors use RFC 9457 `application/problem+json`.
     - Auth: `Authorization: Bearer <token>`. The token identifies the user.
+    - Every response has an `X-Request-Id` header. Send your own (letters,
+      digits, `.`, `_`, `-`, max 128) to follow one request from the app
+      through the backend logs; otherwise the backend creates one.
 servers:
   - url: http://localhost:3000
     description: Local backend
