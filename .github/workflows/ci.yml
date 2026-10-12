@@ -38,3 +38,23 @@ jobs:
       - run: npm ci
       # Testcontainers starts Postgres using the runner's Docker.
       - run: npm test
+
+  breaking-changes:
+    name: No breaking API changes
+    # Compares the spec in the pull request with the one on the target branch.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Fails if a change would break an app already in users' hands: a removed or
+      # renamed field, a response field that became optional, a new required input.
+      # Adding optional fields and new endpoints is allowed.
+      - uses: oasdiff/oasdiff-action/breaking@v0.1.18
+        with:
+          base: origin/${{ github.base_ref }}:openapi/openapi.yaml
+          revision: HEAD:openapi/openapi.yaml
+          fail-on: ERR
+          # Keep the spec inside CI.
+          review: false
