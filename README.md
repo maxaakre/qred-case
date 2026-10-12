@@ -285,8 +285,8 @@ The workflow token is read-only, and every action is pinned to a commit, so a mo
 - Idempotency keys on POSTs for payments-style operations.
 - Turn `/docs` off, or put it behind auth, in production if the API is not meant to be public.
 - Observability: OpenTelemetry traces (W3C `traceparent` next to `X-Request-Id`), RED metrics per route, alerts on 5xx and latency.
-- `ETag` / `Cache-Control` on the overview; push updates (SSE or push notifications) when a transaction arrives.
-- Deploy: the image on ECS Fargate behind API Gateway or an ALB, RDS PostgreSQL, secrets in Secrets Manager, infrastructure as code (CDK), migrations as a pipeline step before the new version takes traffic.
+- Push updates (SSE or push notifications) when a transaction arrives, so the app does not have to reload the overview to see it.
+- Deploy: the image on ECS Fargate behind API Gateway or an ALB, RDS PostgreSQL, secrets in Secrets Manager, infrastructure as code (CDK), migrations as a pipeline step before the new version takes traffic. Set Fastify's `trustProxy` to the load balancer, so logs show the client's IP.
 
 **Scale**
 - A monthly spend counter maintained by the database once summing becomes slow, keeping the `SUM` as a reconciliation check.

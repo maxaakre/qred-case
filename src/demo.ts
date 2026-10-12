@@ -12,8 +12,17 @@ export const DEMO = {
 } as const;
 
 const DEMO_USERS = { anna: DEMO.anna, erik: DEMO.erik } as const;
-type DemoUser = keyof typeof DEMO_USERS;
+export type DemoUser = keyof typeof DEMO_USERS;
+export const DEMO_USER_NAMES = Object.keys(DEMO_USERS) as DemoUser[];
 const TOKEN_LIFETIME = '12h';
+
+export const isDemoUser = (name: string): name is DemoUser => Object.hasOwn(DEMO_USERS, name);
+
+/** A token for a seeded demo user. Shared by POST /demo/token and `npm run token`. */
+export async function signDemoToken(jwtSecret: string, user: DemoUser) {
+  const userId = DEMO_USERS[user];
+  return { token: await signDevToken(jwtSecret, userId, TOKEN_LIFETIME), userId, expiresIn: TOKEN_LIFETIME };
+}
 
 const requestSchema = {
   type: 'object',
@@ -22,7 +31,7 @@ const requestSchema = {
   properties: {
     user: {
       type: 'string',
-      enum: Object.keys(DEMO_USERS),
+      enum: DEMO_USER_NAMES,
       description: 'anna: owner, active card. erik: employee, inactive card (last4 7310).',
     },
   },
@@ -52,10 +61,7 @@ export function registerDemoRoutes(app: FastifyInstance, jwtSecret: string) {
   app.post<{ Body: { user: DemoUser } }>(
     '/demo/token',
     { schema: { body: requestSchema, response: { 200: responseSchema } } },
-    async (req) => {
-      const userId = DEMO_USERS[req.body.user];
-      return { token: await signDevToken(jwtSecret, userId, TOKEN_LIFETIME), userId, expiresIn: TOKEN_LIFETIME };
-    },
+    (req) => signDemoToken(jwtSecret, req.body.user),
   );
 }
 

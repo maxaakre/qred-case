@@ -1,11 +1,10 @@
 import { loadConfig } from '../src/config.js';
-import { DEMO } from '../src/demo.js';
-import { signDevToken } from '../src/dev-token.js';
+import { DEMO_USER_NAMES, isDemoUser, signDemoToken } from '../src/demo.js';
 
 /** Prints a demo JWT for a seeded user: npm run token -- anna | erik */
 const name = process.argv[2] ?? 'anna';
-if (name !== 'anna' && name !== 'erik') {
-  console.error('Usage: npm run token -- anna | erik');
+if (!isDemoUser(name)) {
+  console.error(`Usage: npm run token -- ${DEMO_USER_NAMES.join(' | ')}`);
   process.exit(1);
 }
-console.log(await signDevToken(loadConfig().jwtSecret, DEMO[name], '12h'));
+console.log((await signDemoToken(loadConfig().jwtSecret, name)).token);

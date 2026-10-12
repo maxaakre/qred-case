@@ -21,7 +21,8 @@ const app = await buildApp({
 pool.on('error', (err) => app.log.error({ err }, 'Idle database client failed'));
 
 // Finish in-flight requests and close the pool on shutdown (e.g. a Kubernetes rollout).
-const SHUTDOWN_TIMEOUT_MS = 10_000;
+// Below Docker's 10 s stop grace period, so the timeout is logged before the process is killed.
+const SHUTDOWN_TIMEOUT_MS = 8_000;
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {
     app.log.info({ signal }, 'Shutting down');

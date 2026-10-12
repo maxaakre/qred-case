@@ -84,5 +84,5 @@ if (isMain(import.meta.url)) {
   const pool = new pg.Pool({ connectionString: loadConfig().databaseUrl });
   await seed(pool);
   await pool.end();
-  console.log('Seeded demo data. Get a token with: npm run token -- anna');
+  console.log('Seeded demo data. Get a token from POST /demo/token on /docs, or with: npm run token -- anna');
 }
