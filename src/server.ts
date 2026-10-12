@@ -1,9 +1,9 @@
-import pg from 'pg';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { createPool } from './db.js';
 
 const config = loadConfig();
-const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10 });
+const pool = createPool(config.databaseUrl);
 const app = await buildApp({
   pool,
   config,

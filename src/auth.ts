@@ -1,5 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import { jwtVerify } from 'jose';
+import type { JwtSettings } from './config.js';
 import { isUuid } from './uuid.js';
 
 declare module 'fastify' {
@@ -12,8 +13,8 @@ declare module 'fastify' {
  * Security handlers for openapi-glue, keyed by the scheme name in the spec.
  * The token only proves who the user is (ADR 0006); access is checked per request in the database.
  */
-export function createSecurityHandlers(jwtSecret: string) {
-  const key = new TextEncoder().encode(jwtSecret);
+export function createSecurityHandlers(jwt: JwtSettings) {
+  const key = new TextEncoder().encode(jwt.secret);
   return {
     async bearerAuth(req: FastifyRequest) {
       // The scheme name is case-insensitive in HTTP (RFC 9110), the token is not.
@@ -22,6 +23,9 @@ export function createSecurityHandlers(jwtSecret: string) {
       try {
         const { payload } = await jwtVerify(token, key, {
           algorithms: ['HS256'],
+          // A token from another issuer, or meant for another service, is not ours.
+          issuer: jwt.issuer,
+          audience: jwt.audience,
           // jose only checks `exp` when present; a token without one would never expire.
           requiredClaims: ['exp', 'sub'],
         });

@@ -131,6 +131,15 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     expectContract(res, 'activateCard');
   });
 
+  it('refuses a body far larger than any valid request, before parsing it', async () => {
+    const { user, card } = await holderOf('INACTIVE');
+
+    const res = await activate(user, card, { last4: '4821', padding: 'x'.repeat(2048) });
+
+    expect(res.statusCode).toBe(413);
+    expect(res.json()).toMatchObject({ status: 413, title: 'Payload Too Large' });
+  });
+
   it.each([
     ['text/plain', '4821'],
     // Only a response type in the spec; must not become a way around body validation.

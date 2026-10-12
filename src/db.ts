@@ -4,6 +4,21 @@ import pg from 'pg';
 // at local midnight, which shifts the day depending on the server's time zone.
 pg.types.setTypeParser(pg.types.builtins.DATE, (value) => value);
 
+/**
+ * The app's connection pool. A query that runs too long, or a transaction left open, is
+ * cancelled by Postgres, so one slow request cannot hold a connection the others need.
+ */
+export function createPool(connectionString: string, { statementTimeoutMs = 5_000 } = {}) {
+  return new pg.Pool({
+    connectionString,
+    max: 10,
+    statement_timeout: statementTimeoutMs,
+    idle_in_transaction_session_timeout: 10_000,
+    // Fail fast when the database is unreachable instead of queueing requests.
+    connectionTimeoutMillis: 5_000,
+  });
+}
+
 /** Anything that can run a query: the pool, or a client inside a transaction. */
 export type Queryable = Pick<pg.Pool, 'query'>;
 

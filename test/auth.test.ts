@@ -30,8 +30,12 @@ describe('authentication', () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it('rejects a token signed with another secret', async () => {
-    const res = await listCompanies(`Bearer ${await ctx.tokenSignedWith('not-the-secret-not-the-secret-123', 'u')}`);
+  it.each([
+    ['signed with another secret', { secret: 'not-the-secret-not-the-secret-123' }],
+    ['from another issuer', { issuer: 'someone-else' }],
+    ['meant for another service', { audience: 'another-api' }],
+  ])('rejects a token %s', async (_name, changes) => {
+    const res = await listCompanies(`Bearer ${await ctx.tokenWith(changes, randomUUID())}`);
 
     expect(res.statusCode).toBe(401);
     expectContract(res, 'listMyCompanies');

@@ -57,6 +57,23 @@ describe('HTTP conventions on every response', () => {
     expect(res.headers['cache-control']).toBe('no-store');
   });
 
+  it('sends security headers, and a policy that lets an API response run nothing in a browser', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/me/companies' });
+
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['strict-transport-security']).toContain('max-age=');
+    expect(res.headers['content-security-policy']).toBe("default-src 'none';frame-ancestors 'none'");
+  });
+
+  it('lets the docs page load its own scripts and call the API and the mock, nothing else', async () => {
+    const res = await app.inject({ method: 'GET', url: '/docs/' });
+    const csp = String(res.headers['content-security-policy']);
+
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).toContain("connect-src 'self' http://localhost:4010");
+    expect(csp).toContain("frame-ancestors 'none'");
+  });
+
   it('keeps health checks out of the logs, so probes every few seconds do not bury real requests', async () => {
     logLines.length = 0;
 

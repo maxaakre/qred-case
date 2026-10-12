@@ -10,6 +10,13 @@ x-app-env: &app-env
   SUPPORT_URL: ${SUPPORT_URL:-https://example.com/support}
   LOG_LEVEL: ${LOG_LEVEL:-info}
 
+# The app containers cannot change their own files or gain privileges, so a compromised
+# process has as little to work with as possible.
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 services:
   db:
     image: postgres:18-alpine
@@ -31,6 +38,7 @@ services:
     image: card-overview-api:local
     command: ["sh", "-c", "node dist/scripts/migrate.js && node dist/scripts/seed.js"]
     environment: *app-env
+    <<: *hardened
     depends_on:
       db:
         condition: service_healthy
@@ -42,6 +50,7 @@ services:
       <<: *app-env
       # POST /demo/token and prefilled ids on /docs (ADR 0009). Never in production.
       DEMO_MODE: "true"
+    <<: *hardened
     ports:
       - "3000:3000"
     depends_on:

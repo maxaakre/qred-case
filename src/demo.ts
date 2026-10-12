@@ -1,5 +1,6 @@
 import type { FastifySwaggerUiConfigOptions } from '@fastify/swagger-ui';
 import type { FastifyInstance } from 'fastify';
+import type { JwtSettings } from './config.js';
 import { signDevToken } from './dev-token.js';
 
 /** The seeded demo users and their companies and cards (see scripts/seed.ts). */
@@ -20,9 +21,9 @@ const TOKEN_LIFETIME = '12h';
 export const isDemoUser = (name: string): name is DemoUser => Object.hasOwn(DEMO_USERS, name);
 
 /** A token for a seeded demo user. Shared by POST /demo/token and `npm run token`. */
-export async function signDemoToken(jwtSecret: string, user: DemoUser) {
+export async function signDemoToken(jwt: JwtSettings, user: DemoUser) {
   const userId = DEMO_USERS[user];
-  return { token: await signDevToken(jwtSecret, userId, TOKEN_LIFETIME), userId, expiresIn: TOKEN_LIFETIME };
+  return { token: await signDevToken(jwt, userId, TOKEN_LIFETIME), userId, expiresIn: TOKEN_LIFETIME };
 }
 
 const requestSchema = {
@@ -57,12 +58,12 @@ const responseSchema = {
  * membership in the database (ADR 0006), so against a real database without the seed
  * these tokens can see nothing.
  */
-export function registerDemoRoutes(app: FastifyInstance, jwtSecret: string) {
+export function registerDemoRoutes(app: FastifyInstance, jwt: JwtSettings) {
   app.log.warn('DEMO_MODE is on: anyone can get a token at POST /demo/token. Never enable it in production.');
   app.post<{ Body: { user: DemoUser } }>(
     '/demo/token',
     { schema: { body: requestSchema, response: { 200: responseSchema } } },
-    (req) => signDemoToken(jwtSecret, req.body.user),
+    (req) => signDemoToken(jwt, req.body.user),
   );
 }
 

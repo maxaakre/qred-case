@@ -6,6 +6,10 @@ const schema = z.object({
   DATABASE_URL: z.string().url(),
   // HS256 needs a long secret; refuse to start with a weak one.
   JWT_SECRET: z.string().min(32),
+  // Who issues the tokens and who they are for. A token for another service is rejected,
+  // even when it is signed with the same key.
+  JWT_ISSUER: z.string().min(1).default('card-overview-dev'),
+  JWT_AUDIENCE: z.string().min(1).default('card-overview-api'),
   SUPPORT_PHONE: z.string().min(1),
   SUPPORT_EMAIL: z.string().email(),
   SUPPORT_URL: z.string().url(),
@@ -16,11 +20,17 @@ const schema = z.object({
   DEMO_MODE: z.enum(['true', 'false']).default('false'),
 });
 
+export interface JwtSettings {
+  secret: string;
+  issuer: string;
+  audience: string;
+}
+
 export interface Config {
   logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
   port: number;
   databaseUrl: string;
-  jwtSecret: string;
+  jwt: JwtSettings;
   support: { phone: string; email: string; url: string };
   activationRateLimit: { max: number; windowSeconds: number };
   demoMode: boolean;
@@ -38,7 +48,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: e.LOG_LEVEL,
     port: e.PORT,
     databaseUrl: e.DATABASE_URL,
-    jwtSecret: e.JWT_SECRET,
+    jwt: { secret: e.JWT_SECRET, issuer: e.JWT_ISSUER, audience: e.JWT_AUDIENCE },
     support: { phone: e.SUPPORT_PHONE, email: e.SUPPORT_EMAIL, url: e.SUPPORT_URL },
     activationRateLimit: { max: e.ACTIVATION_RATE_LIMIT_MAX, windowSeconds: e.ACTIVATION_RATE_LIMIT_WINDOW_SECONDS },
     demoMode: e.DEMO_MODE === 'true',

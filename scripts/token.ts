@@ -7,4 +7,4 @@ if (!isDemoUser(name)) {
   console.error(`Usage: npm run token -- ${DEMO_USER_NAMES.join(' | ')}`);
   process.exit(1);
 }
-console.log((await signDemoToken(loadConfig().jwtSecret, name)).token);
+console.log((await signDemoToken(loadConfig().jwt, name)).token);

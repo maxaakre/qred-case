@@ -233,6 +233,24 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 - Unknown request fields are rejected, not silently dropped. Non-JSON bodies get **415** instead of skipping validation. Tokens without an expiry or with a non-uuid subject are rejected.
 - Database down → `/health` returns **503**. A dropped idle connection is logged, not a crash; a failed transaction keeps its original error and the broken connection is discarded. Unexpected errors return a generic 500 and are logged, never leaked.
 
+## Security
+
+| Threat | Protection |
+|---|---|
+| Reading another customer's data | Access is checked in the database on every request (membership), never trusted from the token or the URL. No access and "does not exist" give the same `404`. `/v1/me/...` has no user id to tamper with. |
+| Forged or stolen tokens | HS256 only (no `alg: none`), and `exp`, `sub`, `iss` and `aud` are required, so a token for another service is refused even with the same key. Tokens are redacted from the logs. |
+| Guessing activation digits | 5 wrong attempts lock the card (one atomic `UPDATE`, safe under concurrency), plus a per-user rate limit. |
+| Malformed or oversized input | Every request is validated against the contract: unknown fields are rejected, non-JSON bodies get `415`, bodies over 1 KiB get `413`. Bodies with `__proto__` keys are rejected (prototype pollution). |
+| SQL injection | Every query is parameterized; user input is never put into SQL text. |
+| Slow clients and slow queries | Requests time out after 10 s; queries are cancelled after 5 s and idle transactions after 10 s, so one request cannot hold a connection. |
+| Leaking internals | Unexpected errors return a generic `500`; the details go to the log with the request id. |
+| Browsers and caches | `Cache-Control: no-store`, `nosniff`, HSTS, and a content security policy that lets an API response run nothing. `/docs` gets its own narrow policy and cannot be framed. |
+| Vulnerable dependencies | CI fails on known high-severity vulnerabilities in production dependencies; Dependabot opens update pull requests for npm, actions and the base image. Actions are pinned to commits and the workflow token is read-only. |
+| A compromised container | The image runs as a non-root user; in Compose the app containers have a read-only filesystem, no Linux capabilities and no privilege escalation. |
+| Demo shortcuts in production | Demo mode is off unless `DEMO_MODE=true`, logs a warning when on, and its tokens only reach the seeded demo users ([ADR 0009](docs/adr/0009-demo-tokens-outside-the-contract.md)). |
+
+Before production, see "With more time": a real identity provider with asymmetric keys, separate database roles for migrations and for the app, a shared rate-limit store and a WAF in front, secrets in Secrets Manager, and `/docs` off or behind sign-in.
+
 ## Logging and tracing a request
 
 - **Every response has an `X-Request-Id`.** The app can send its own; otherwise the backend creates a uuid. The same id is on every log line for that request (`reqId`), so a user's error can be found in the logs from one value.
@@ -280,6 +298,7 @@ The workflow token is read-only, and every action is pinned to a commit, so a mo
 
 **Platform**
 - Real identity provider (BankID via an OIDC provider) with short-lived tokens and refresh; asymmetric keys (RS256/ES256) so services can verify without the secret.
+- Separate database roles: one that owns the schema and runs migrations, and one for the app with only the reads and writes it needs.
 - A shared rate-limit store (Redis) once there is more than one instance, and a per-IP limit at the edge (API Gateway or WAF) before requests reach the service.
 - Idempotency keys on POSTs for payments-style operations.
 - Turn `/docs` off, or put it behind auth, in production if the API is not meant to be public.

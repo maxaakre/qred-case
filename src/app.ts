@@ -1,3 +1,4 @@
+import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
@@ -31,6 +32,12 @@ export interface AppDeps {
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     logger: deps.logger ?? false,
+    // The largest valid body is {"last4":"1234"}. Refuse anything bigger than 1 KiB before
+    // parsing it, instead of Fastify's default 1 MiB.
+    bodyLimit: 1024,
+    // A client that sends its request too slowly gets cut off (slowloris), in case no proxy
+    // in front of the service already does it.
+    requestTimeout: 10_000,
     // Correlation id: reuse the app's X-Request-Id, or create one. Pino puts it on
     // every log line as `reqId`, and it goes back in the response header.
     requestIdHeader: false,
@@ -64,6 +71,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // Without this, a text/plain body would skip validation entirely.
   app.removeContentTypeParser('text/plain');
   registerProblemHandlers(app);
+  // Security headers on every response. An API response is JSON that a browser must never
+  // run or frame, so its policy allows nothing. /docs gets its own policy below.
+  await app.register(helmet, {
+    contentSecurityPolicy: { useDefaults: false, directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } },
+  });
   // Only for operations marked `x-fastify-config: { rateLimit: {} }` in the spec.
   // Runs after the bearer check, so it counts per signed-in user, and a stranger
   // cannot use up someone else's attempts. Kept in memory: one count per instance.
@@ -81,6 +93,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(swagger, { mode: 'static', specification: { path: SPEC, baseDir: dirname(SPEC) } });
   await app.register(swaggerUi, {
     routePrefix: '/docs',
+    // The docs page may load its own files and call this API and the mock server from the
+    // spec's `servers`, nothing else. No `upgrade-insecure-requests`: it runs on local http.
+    staticCSP: {
+      'default-src': ["'self'"],
+      'base-uri': ["'self'"],
+      'connect-src': ["'self'", 'http://localhost:4010'],
+      'font-src': ["'self'", 'data:'],
+      'img-src': ["'self'", 'data:'],
+      'object-src': ["'none'"],
+      'script-src': ["'self'"],
+      'script-src-attr': ["'none'"],
+      // The hash is one small style Swagger UI injects at runtime; all other inline styles stay blocked.
+      'style-src': ["'self'", 'https:', "'sha256-RL3ie0nH+Lzz2YNqQN83mnU0J1ot4QL7b99vMdIX99w='"],
+      'frame-ancestors': ["'none'"],
+    },
     theme: { title: 'Card Overview API', css: [{ filename: 'theme.css', content: docsTheme }] },
     uiConfig: {
       // Every operation is ready to Execute, and shows how long the call took.
@@ -97,8 +124,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(openapiGlue, {
     specification: SPEC,
     serviceHandlers: createHandlers(deps),
-    securityHandlers: createSecurityHandlers(deps.config.jwtSecret),
+    securityHandlers: createSecurityHandlers(deps.config.jwt),
   });
-  if (deps.config.demoMode) registerDemoRoutes(app, deps.config.jwtSecret);
+  if (deps.config.demoMode) registerDemoRoutes(app, deps.config.jwt);
   return app;
 }
