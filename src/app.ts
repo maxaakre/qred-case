@@ -19,8 +19,14 @@ export interface AppDeps {
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false,
-    // `example` is documentation in the spec, not validation.
-    ajv: { customOptions: { keywords: ['example'] } },
+    ajv: {
+      customOptions: {
+        // `example` is documentation in the spec, not validation.
+        keywords: ['example'],
+        // Reject unknown fields instead of silently dropping them (Fastify's default).
+        removeAdditional: false,
+      },
+    },
   });
   app.decorateRequest('userId', '');
   registerProblemHandlers(app);

@@ -126,6 +126,38 @@ export function cardsRepository(db: Queryable) {
       return rows.map(toTransactionRow);
     },
 
+    /**
+     * Activates the card if the holder sent the right digits. One atomic statement:
+     * Postgres re-checks the WHERE clause under the row lock, so concurrent requests
+     * cannot both pass the attempt limit (ADR 0008).
+     */
+    async activateIfDigitsMatch(cardId: string, holderUserId: string, last4: string, maxAttempts: number) {
+      const { rows } = await db.query(
+        `UPDATE cards SET status = 'ACTIVE', activated_at = now()
+          WHERE id = $1 AND holder_user_id = $2 AND last4 = $3
+            AND status = 'INACTIVE' AND failed_activation_attempts < $4
+            AND EXISTS (SELECT 1 FROM company_members m
+                         WHERE m.company_id = cards.company_id AND m.user_id = cards.holder_user_id)
+          RETURNING ${CARD_COLUMNS}`,
+        [cardId, holderUserId, last4, maxAttempts],
+      );
+      return rows[0] ? toCard(rows[0]) : null;
+    },
+
+    /** Counts a wrong attempt atomically and returns the new count, or null if the card is not activatable. */
+    async recordFailedActivation(cardId: string, holderUserId: string, last4: string, maxAttempts: number) {
+      const { rows } = await db.query<{ failed_activation_attempts: number }>(
+        `UPDATE cards SET failed_activation_attempts = failed_activation_attempts + 1
+          WHERE id = $1 AND holder_user_id = $2 AND last4 <> $3
+            AND status = 'INACTIVE' AND failed_activation_attempts < $4
+            AND EXISTS (SELECT 1 FROM company_members m
+                         WHERE m.company_id = cards.company_id AND m.user_id = cards.holder_user_id)
+          RETURNING failed_activation_attempts`,
+        [cardId, holderUserId, last4, maxAttempts],
+      );
+      return rows[0]?.failed_activation_attempts ?? null;
+    },
+
     async countTransactions(cardId: string): Promise<number> {
       const { rows } = await db.query<{ count: string }>('SELECT COUNT(*) AS count FROM transactions WHERE card_id = $1', [
         cardId,

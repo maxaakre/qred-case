@@ -18,7 +18,7 @@ const INVOICE_ROLES: ReadonlySet<Role> = new Set(['OWNER', 'ADMIN']);
 
 const money = (minor: number, currency: string): Schemas['Money'] => ({ minor, currency });
 
-function toCard(card: CardRow): Schemas['Card'] {
+export function toCard(card: CardRow): Schemas['Card'] {
   return {
     id: card.id,
     // The digits are the activation proof, so they stay hidden until the card is active (ADR 0008).

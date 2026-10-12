@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { activationService } from './activation.js';
 import type { AppDeps } from './app.js';
 import type { components } from './generated/api.js';
 import { cardOverviewService } from './overview.js';
@@ -12,6 +13,7 @@ export function createHandlers({ pool, config, now }: AppDeps) {
   const companies = companiesRepository(pool);
   const overview = cardOverviewService(pool, config, now);
   const transactions = transactionsService(pool);
+  const activation = activationService(pool);
 
   return {
     async getHealth(_req: FastifyRequest, reply: FastifyReply) {
@@ -31,6 +33,12 @@ export function createHandlers({ pool, config, now }: AppDeps) {
       req: FastifyRequest<{ Params: { cardId: string }; Querystring: { limit: number; cursor?: string } }>,
     ): Promise<Schemas['TransactionPage']> {
       return transactions.list(req.userId, req.params.cardId, req.query.limit, req.query.cursor);
+    },
+
+    async activateCard(
+      req: FastifyRequest<{ Params: { cardId: string }; Body: { last4: string } }>,
+    ): Promise<Schemas['Card']> {
+      return activation.activate(req.userId, req.params.cardId, req.body.last4);
     },
   };
 }
