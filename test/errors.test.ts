@@ -1,22 +1,19 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type pg from 'pg';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { DEMO } from '../src/demo.js';
-import { createTestContext, type TestContext } from './context.js';
+import { deadPool, useTestContext } from './context.js';
 
 /** Error responses say what is wrong, where, and in a form the app can use. */
 describe('error responses', () => {
-  let ctx: TestContext;
+  const ctx = useTestContext({}, { reset: false });
   let user: string;
   let card: string;
   beforeAll(async () => {
-    ctx = await createTestContext();
     await ctx.fx.reset();
-    const member = await ctx.fx.memberOf();
-    user = member.user;
-    card = await ctx.fx.card({ holder: user, company: member.company, status: 'INACTIVE', last4: '4821' });
+    ({ user, card } = await ctx.fx.cardHolder());
   });
-  afterAll(() => ctx.close());
 
-  const activate = (payload: object) => ctx.post(user, `/v1/cards/${card}/activation`, payload);
+  const activate = (payload: object) => ctx.activate(user, card, payload);
 
   it.each([
     ['a missing field', {}, [{ in: 'body', field: 'last4', message: 'is required' }]],
@@ -54,8 +51,22 @@ describe('error responses', () => {
     const res = await ctx.app.inject({ method: 'DELETE', url: '/v1/me/companies' });
 
     expect(res.statusCode).toBe(405);
-    expect(res.headers.allow).toBe('GET, HEAD');
+    expect(res.headers.allow).toBe('GET');
     expect(res.json()).toMatchObject({ status: 405, title: 'Method Not Allowed' });
+  });
+
+  it('has no HEAD routes outside the contract', async () => {
+    const res = await ctx.app.inject({ method: 'HEAD', url: '/v1/me/companies' });
+
+    expect(res.statusCode).toBe(405);
+    expect(res.headers.allow).toBe('GET');
+  });
+
+  it('puts the path in `instance`, never the query, which can hold a cursor', async () => {
+    const res = await ctx.get(user, `/v1/cards/${card}/transactions?cursor=bm90LWEtY3Vyc29y`);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().instance).toBe(`/v1/cards/${card}/transactions`);
   });
 
   it('says which route was not found', async () => {
@@ -66,23 +77,38 @@ describe('error responses', () => {
   });
 });
 
-describe('when something unexpected fails', () => {
-  it('answers a generic 500 without internals, and keeps serving the next requests', async () => {
-    const { default: pg } = await import('pg');
-    const { buildApp } = await import('../src/app.js');
-    const { NOW, testConfig } = await import('./context.js');
-    const { signDevToken } = await import('../src/dev-token.js');
-    const deadPool = new pg.Pool({ connectionString: 'postgres://app:app@127.0.0.1:1/none', connectionTimeoutMillis: 300 });
-    const app = await buildApp({ pool: deadPool, config: testConfig, now: () => NOW });
-    const headers = { authorization: `Bearer ${await signDevToken(testConfig.jwt, DEMO.anna)}` };
+describe('when the database is down', () => {
+  const ctx = useTestContext({}, { reset: false, appPool: deadPool() });
 
-    const first = await app.inject({ method: 'GET', url: '/v1/me/companies', headers });
-    const second = await app.inject({ method: 'GET', url: '/v1/me/companies', headers });
+  it('answers 503 with Retry-After, so the app can offer "Try again"', async () => {
+    const res = await ctx.get(DEMO.anna, '/v1/me/companies');
+
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['retry-after']).toBe('5');
+    expect(res.json()).toEqual({
+      type: 'about:blank',
+      title: 'Service Unavailable',
+      status: 503,
+      detail: 'The service is temporarily unavailable',
+      instance: '/v1/me/companies',
+    });
+  });
+});
+
+describe('when something unexpected fails', () => {
+  // A bug, not an outage: a query that throws an ordinary error.
+  const buggyPool = {
+    query: async () => Promise.reject(new Error('column "x" does not exist')),
+    end: async () => {},
+  } as unknown as pg.Pool;
+  const ctx = useTestContext({}, { reset: false, appPool: buggyPool });
+
+  it('answers a generic 500 without internals, and keeps serving the next requests', async () => {
+    const first = await ctx.get(DEMO.anna, '/v1/me/companies');
+    const second = await ctx.get(DEMO.anna, '/v1/me/companies');
 
     expect(first.statusCode).toBe(500);
     expect(first.json()).toEqual({ type: 'about:blank', title: 'Internal Server Error', status: 500, instance: '/v1/me/companies' });
     expect(second.statusCode).toBe(500);
-    await app.close();
-    await deadPool.end();
   });
 });

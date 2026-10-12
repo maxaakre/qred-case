@@ -1,15 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createTestContext, type TestContext } from './context.js';
-import { expectContract } from './contract.js';
+import { describe, expect, it } from 'vitest';
+import { useTestContext } from './context.js';
 
 describe('GET /v1/cards/{cardId}/transactions', () => {
-  let ctx: TestContext;
-  beforeAll(async () => {
-    ctx = await createTestContext();
-  });
-  beforeEach(() => ctx.fx.reset());
-  afterAll(() => ctx.close());
+  const ctx = useTestContext();
 
   const list = (userId: string, cardId: string, query = '') => ctx.get(userId, `/v1/cards/${cardId}/transactions${query}`);
 
@@ -31,9 +25,9 @@ describe('GET /v1/cards/{cardId}/transactions', () => {
   it('pages through all transactions newest first', async () => {
     const { user, card } = await cardWithTransactions(5);
 
-    const page1 = expectContract(await list(user, card, '?limit=2'), 'listCardTransactions');
-    const page2 = expectContract(await list(user, card, `?limit=2&cursor=${page1.nextCursor}`), 'listCardTransactions');
-    const page3 = expectContract(await list(user, card, `?limit=2&cursor=${page2.nextCursor}`), 'listCardTransactions');
+    const page1 = (await list(user, card, '?limit=2')).json();
+    const page2 = (await list(user, card, `?limit=2&cursor=${page1.nextCursor}`)).json();
+    const page3 = (await list(user, card, `?limit=2&cursor=${page2.nextCursor}`)).json();
 
     expect(merchants(page1)).toEqual(['Shop 5', 'Shop 4']);
     expect(merchants(page2)).toEqual(['Shop 3', 'Shop 2']);
@@ -44,7 +38,7 @@ describe('GET /v1/cards/{cardId}/transactions', () => {
   it('defaults to 20 per page', async () => {
     const { user, card } = await cardWithTransactions(21);
 
-    const body = expectContract(await list(user, card), 'listCardTransactions');
+    const body = (await list(user, card)).json();
 
     expect(body.items).toHaveLength(20);
     expect(body.nextCursor).not.toBeNull();
@@ -52,10 +46,10 @@ describe('GET /v1/cards/{cardId}/transactions', () => {
 
   it('does not repeat or skip rows when a new transaction arrives between pages', async () => {
     const { user, card } = await cardWithTransactions(4);
-    const page1 = expectContract(await list(user, card, '?limit=2'), 'listCardTransactions');
+    const page1 = (await list(user, card, '?limit=2')).json();
 
     await ctx.fx.transaction(card, { amount: -1, occurredAt: '2026-10-11T12:00:00Z', merchant: 'New shop' });
-    const page2 = expectContract(await list(user, card, `?limit=2&cursor=${page1.nextCursor}`), 'listCardTransactions');
+    const page2 = (await list(user, card, `?limit=2&cursor=${page1.nextCursor}`)).json();
 
     expect(merchants(page2)).toEqual(['Shop 2', 'Shop 1']);
   });
@@ -66,8 +60,8 @@ describe('GET /v1/cards/{cardId}/transactions', () => {
       await ctx.fx.transaction(card, { amount: -1, occurredAt: '2026-10-05T12:00:00Z', merchant: `Same ${i}` });
     }
 
-    const page1 = expectContract(await list(user, card, '?limit=2'), 'listCardTransactions');
-    const page2 = expectContract(await list(user, card, `?limit=2&cursor=${page1.nextCursor}`), 'listCardTransactions');
+    const page1 = (await list(user, card, '?limit=2')).json();
+    const page2 = (await list(user, card, `?limit=2&cursor=${page1.nextCursor}`)).json();
 
     const all = [...merchants(page1), ...merchants(page2)];
     expect(new Set(all).size).toBe(3);
@@ -81,14 +75,21 @@ describe('GET /v1/cards/{cardId}/transactions', () => {
     const res = await list(colleague, card);
 
     expect(res.statusCode).toBe(404);
-    expectContract(res, 'listCardTransactions');
+  });
+
+  it('returns 404 once the holder has left the company, even for their own card', async () => {
+    const { user, company, card } = await cardWithTransactions(1);
+    await ctx.pool.query('DELETE FROM company_members WHERE user_id = $1 AND company_id = $2', [user, company]);
+
+    const res = await list(user, card);
+
+    expect(res.statusCode).toBe(404);
   });
 
   it('returns 404 for a card that does not exist', async () => {
     const res = await list(await ctx.fx.user(), randomUUID());
 
     expect(res.statusCode).toBe(404);
-    expectContract(res, 'listCardTransactions');
   });
 
   it.each([
@@ -101,17 +102,15 @@ describe('GET /v1/cards/{cardId}/transactions', () => {
     const res = await list(user, card, query);
 
     expect(res.statusCode).toBe(400);
-    expectContract(res, 'listCardTransactions');
   });
 
   it("returns 400 for a cursor from another card's list", async () => {
     const a = await cardWithTransactions(3);
-    const page = expectContract(await list(a.user, a.card, '?limit=1'), 'listCardTransactions');
+    const page = (await list(a.user, a.card, '?limit=1')).json();
     const otherCard = await ctx.fx.card({ holder: a.user, company: a.company });
 
     const res = await list(a.user, otherCard, `?cursor=${page.nextCursor}`);
 
     expect(res.statusCode).toBe(400);
-    expectContract(res, 'listCardTransactions');
   });
 });

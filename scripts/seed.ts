@@ -1,8 +1,8 @@
 import pg from 'pg';
-import { spendPeriodFor } from '../src/domain/spend-period.js';
-import { loadConfig } from '../src/config.js';
 import { type Queryable, withTransaction } from '../src/db.js';
 import { DEMO } from '../src/demo.js';
+import { spendPeriodFor } from '../src/domain/spend-period.js';
+import { databaseUrlFromEnv } from './database-url.js';
 import { isMain } from './is-main.js';
 
 const MERCHANTS = ['Clas Ohlson', 'Circle K', 'Bauhaus', 'SJ', 'Webhallen', 'Espresso House', 'Biltema', 'Postnord'];
@@ -53,7 +53,8 @@ export async function seed(pool: pg.Pool, now = new Date()) {
       [-120000, 'SETTLED'], [-89900, 'SETTLED'], [-45000, 'SETTLED'], [-70000, 'SETTLED'],
       [-64900, 'SETTLED'], [25000, 'SETTLED'], [-95200, 'PENDING'], [-300000, 'DECLINED'],
     ];
-    const elapsed = Math.max(now.getTime() - period.startsAt.getTime(), 60_000);
+    // Spread over the month so far, so no row lands after `now`, even on the 1st just after midnight.
+    const elapsed = Math.max(now.getTime() - period.startsAt.getTime(), 1);
     const rows: [number, string, Date][] = thisMonth.map(([amount, status], i) => [
       amount,
       status,
@@ -81,7 +82,7 @@ export async function seed(pool: pg.Pool, now = new Date()) {
 }
 
 if (isMain(import.meta.url)) {
-  const pool = new pg.Pool({ connectionString: loadConfig().databaseUrl });
+  const pool = new pg.Pool({ connectionString: databaseUrlFromEnv() });
   await seed(pool);
   await pool.end();
   console.log('Seeded demo data. Get a token from POST /demo/token on /docs, or with: npm run token -- anna');

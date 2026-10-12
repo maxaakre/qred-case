@@ -6,13 +6,18 @@ import type { JwtSettings } from './config.js';
  * expects. `expiresIn: null` leaves out `exp`, which only tests use, to prove such
  * tokens are rejected.
  */
-export function signDevToken(jwt: JwtSettings, userId: string, expiresIn: string | null = '15m') {
+export function signDevToken(
+  jwt: JwtSettings,
+  userId: string,
+  expiresIn: string | null = '15m',
+  { issuedAt }: { issuedAt?: Date } = {},
+) {
   const token = new SignJWT({})
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(userId)
     .setIssuer(jwt.issuer)
     .setAudience(jwt.audience)
-    .setIssuedAt();
+    .setIssuedAt(issuedAt);
   if (expiresIn !== null) token.setExpirationTime(expiresIn);
   return token.sign(new TextEncoder().encode(jwt.secret));
 }

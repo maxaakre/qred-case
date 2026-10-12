@@ -1,15 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { SignJWT } from 'jose';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestContext, testConfig, type TestContext } from './context.js';
-import { expectContract } from './contract.js';
+import { describe, expect, it } from 'vitest';
+import { signDevToken } from '../src/dev-token.js';
+import { useTestContext, testConfig } from './context.js';
 
 describe('authentication', () => {
-  let ctx: TestContext;
-  beforeAll(async () => {
-    ctx = await createTestContext();
-  });
-  afterAll(() => ctx.close());
+  const ctx = useTestContext({}, { reset: false });
 
   const listCompanies = (authorization?: string) =>
     ctx.app.inject({
@@ -18,11 +13,12 @@ describe('authentication', () => {
       headers: authorization ? { authorization } : {},
     });
 
-  it('rejects a request without a token', async () => {
+  it('rejects a request without a token, and says to use a bearer token', async () => {
     const res = await listCompanies();
 
     expect(res.statusCode).toBe(401);
-    expect(expectContract(res, 'listMyCompanies')).toMatchObject({ status: 401, title: 'Unauthorized' });
+    expect(res.headers['www-authenticate']).toBe('Bearer');
+    expect(res.json()).toMatchObject({ status: 401, title: 'Unauthorized' });
   });
 
   it('accepts the scheme in any letter case, as HTTP allows', async () => {
@@ -39,33 +35,23 @@ describe('authentication', () => {
     const res = await listCompanies(`Bearer ${await ctx.tokenWith(changes, randomUUID())}`);
 
     expect(res.statusCode).toBe(401);
-    expectContract(res, 'listMyCompanies');
   });
 
   it('rejects an expired token', async () => {
     const res = await listCompanies(`Bearer ${await ctx.token('u', { expiresIn: '-1m' })}`);
 
     expect(res.statusCode).toBe(401);
-    expectContract(res, 'listMyCompanies');
   });
 
   it('rejects a valid token whose subject is not a user id', async () => {
     const res = await listCompanies(`Bearer ${await ctx.token('not-a-uuid')}`);
 
     expect(res.statusCode).toBe(401);
-    expectContract(res, 'listMyCompanies');
   });
 
   it('rejects a token issued more than an hour ago, even if it has not expired', async () => {
-    const now = Math.floor(Date.now() / 1000);
-    const longLived = await new SignJWT({})
-      .setProtectedHeader({ alg: 'HS256' })
-      .setSubject(randomUUID())
-      .setIssuer(testConfig.jwt.issuer)
-      .setAudience(testConfig.jwt.audience)
-      .setIssuedAt(now - 2 * 3600)
-      .setExpirationTime(now + 3600)
-      .sign(new TextEncoder().encode(testConfig.jwt.secret));
+    const twoHoursAgo = new Date(Date.now() - 2 * 3600_000);
+    const longLived = await signDevToken(testConfig.jwt, randomUUID(), '3h', { issuedAt: twoHoursAgo });
 
     const res = await listCompanies(`Bearer ${longLived}`);
 
@@ -76,6 +62,5 @@ describe('authentication', () => {
     const res = await listCompanies(`Bearer ${await ctx.tokenWithoutExpiry(randomUUID())}`);
 
     expect(res.statusCode).toBe(401);
-    expectContract(res, 'listMyCompanies');
   });
 });

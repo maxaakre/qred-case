@@ -38,6 +38,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // A client that sends its request too slowly gets cut off (slowloris), in case no proxy
     // in front of the service already does it.
     requestTimeout: 10_000,
+    // Only the methods in the contract. Fastify would otherwise add a HEAD for every GET.
+    exposeHeadRoutes: false,
     // Correlation id: reuse the app's X-Request-Id, or create one. Pino puts it on
     // every log line as `reqId`, and it goes back in the response header.
     requestIdHeader: false,
@@ -64,10 +66,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // Static docs assets set their own caching and are left alone.
     if (!reply.hasHeader('cache-control')) reply.header('cache-control', 'no-store');
   });
-  // Load balancers and Docker probe /health every few seconds. Log it only when it fails
-  // (warn), so the probes do not bury real requests.
+  // Load balancers and Docker probe /live and /health every few seconds. Log them only
+  // when they fail (warn), so the probes do not bury real requests.
   app.addHook('onRoute', (route) => {
-    if (route.url === '/health') route.logLevel = 'warn';
+    if (route.url === '/live' || route.url === '/health') route.logLevel = 'warn';
   });
   // The spec only defines JSON bodies, and only JSON bodies are validated against it.
   // Without this, a text/plain body would skip validation entirely.

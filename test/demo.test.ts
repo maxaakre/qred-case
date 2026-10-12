@@ -1,16 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { DEMO } from '../src/demo.js';
-import { createTestContext, type TestContext } from './context.js';
+import { type TestContext, useTestContext } from './context.js';
 
 const getToken = (ctx: TestContext, user: string) =>
   ctx.app.inject({ method: 'POST', url: '/demo/token', payload: { user } });
 
 describe('demo tokens, DEMO_MODE off (the default)', () => {
-  let ctx: TestContext;
-  beforeAll(async () => {
-    ctx = await createTestContext();
-  });
-  afterAll(() => ctx.close());
+  const ctx = useTestContext({}, { reset: false });
 
   it('has no token endpoint', async () => {
     const res = await getToken(ctx, 'anna');
@@ -35,11 +31,7 @@ describe('demo tokens, DEMO_MODE off (the default)', () => {
 });
 
 describe('demo tokens, DEMO_MODE on', () => {
-  let ctx: TestContext;
-  beforeAll(async () => {
-    ctx = await createTestContext({ demoMode: true });
-  });
-  afterAll(() => ctx.close());
+  const ctx = useTestContext({ demoMode: true }, { reset: false });
 
   it('returns a token for a demo user that the API accepts', async () => {
     const res = await getToken(ctx, 'anna');
@@ -82,10 +74,9 @@ describe('demo tokens, DEMO_MODE on', () => {
     expect(page.body).toMatch(/"persistAuthorization":true/);
   });
 
-  it('lets every call bring its own token or demo user, and says who may call it', async () => {
+  it('says on every call who may call it, and leaves the token to Authorize', async () => {
     const spec = (await ctx.app.inject({ method: 'GET', url: '/docs/json' })).json();
-    const authField = (path: string, method: string) =>
-      spec.paths[path][method].parameters.find((p: any) => p.name === 'X-Demo-Auth');
+    const page = await ctx.app.inject({ method: 'GET', url: '/docs/static/swagger-initializer.js' });
 
     for (const [path, method] of [
       ['/v1/me/companies', 'get'],
@@ -93,22 +84,13 @@ describe('demo tokens, DEMO_MODE on', () => {
       ['/v1/cards/{cardId}/transactions', 'get'],
       ['/v1/cards/{cardId}/activation', 'post'],
     ]) {
-      const field = authField(path!, method!);
-      expect(field).toMatchObject({ in: 'header', required: false, schema: { type: 'string' } });
-      expect(field.schema.enum).toBeUndefined(); // free text: a token, a name or a user id
-      expect(field.description).toMatch(/token/i);
+      const operation = spec.paths[path!][method!];
+      expect(operation.description).toMatch(/\*\*Demo:\*\*/);
+      expect((operation.parameters ?? []).filter((p: any) => p.in === 'header')).toEqual([]);
     }
-    expect(authField('/v1/cards/{cardId}/activation', 'post')).toMatchObject({ example: 'erik' });
-    expect(authField('/v1/cards/{cardId}/activation', 'post').description).toMatch(/card holder/i);
-    expect(spec.paths['/health'].get.parameters ?? []).toEqual([]);
-  });
-
-  it('never lets X-Demo-Auth sign anyone in on the server: the page turns it into a token', async () => {
-    const res = await ctx.app.inject({ method: 'GET', url: '/v1/me/companies', headers: { 'x-demo-auth': 'anna' } });
-    const page = await ctx.app.inject({ method: 'GET', url: '/docs/static/swagger-initializer.js' });
-
-    expect(res.statusCode).toBe(401);
-    expect(page.body).toContain('X-Demo-Auth');
+    expect(spec.paths['/v1/cards/{cardId}/activation'].post.description).toMatch(/card holder/i);
+    expect(JSON.stringify(spec)).not.toContain('X-Demo-Auth');
+    expect(page.body).not.toContain('requestInterceptor');
   });
 
   it('accepts a demo user id as well as a name, but nobody else', async () => {

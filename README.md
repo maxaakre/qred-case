@@ -29,7 +29,7 @@ Open http://localhost:3000/docs. Demo mode is on in `docker compose` ([ADR 0009]
 
 1. **You are already signed in as Anna** when the page opens: the locks are closed, and the sign-in survives a reload.
 2. **Call the API.** Every operation is ready, with the demo ids filled in: open it and click **Execute**.
-3. **Bring your own token or user, per call.** Every operation has an `X-Demo-Auth` text field, like the token a real app sends with each request. Paste a token (with or without `Bearer`), or type `anna`, `erik` or a user id; its description says who may call that route. The page turns it into the `Authorization` header before sending: the server never sees the field, and an unknown user gets a clear `401`. To switch user for every call, run **Demo → `POST /demo/token`** with `erik`.
+3. **Switch user.** Run **Demo → `POST /demo/token`** with `erik`: the page signs in as Erik for every call. Each operation's description says who may call it. To use your own token, paste it into **Authorize**.
 
 | Operation | What you see as Anna |
 |---|---|
@@ -37,7 +37,7 @@ Open http://localhost:3000/docs. Demo mode is on in `docker compose` ([ADR 0009]
 | `GET /v1/companies/{companyId}/card-overview` | The design: active card •••• 4821, 5 400 of 10 000 kr remaining, invoice due, 3 latest transactions of 57 |
 | `GET /v1/cards/{cardId}/transactions` | The first 20 transactions; pass `nextCursor` as `cursor` for the next page |
 
-4. **Activate a card.** Open `POST /v1/cards/{cardId}/activation`: Erik's card and `X-Demo-Auth: erik` are filled in. Pick a body from **Examples**:
+4. **Activate a card.** Sign in as `erik` (step 3), then open `POST /v1/cards/{cardId}/activation`: Erik's card is filled in. Pick a body from **Examples**:
 
 | Example | Result |
 |---|---|
@@ -204,17 +204,18 @@ src/
   server.ts              process entry: config, logging, graceful shutdown
   config.ts              typed, validated config; refuses to start if anything is missing
   auth.ts                JWT verification (HS256, subject = user id)
+  api.ts                 shapes from the spec: schemas, path, query and body per operation
   handlers.ts            one thin handler per operationId
   overview.ts            use case: the card overview screen in one snapshot
   transactions.ts        use case: paginated transactions with an opaque cursor
   activation.ts          use case: activate a card, count wrong attempts
-  domain/                pure rules: spend period, activation, spend summary
+  domain/                pure rules (spend period, activation, spend summary) and the domain types
   repositories/          SQL, one file per aggregate
   mappers.ts             database rows to API shapes
   problem.ts             problem+json errors
   db.ts                  transactions and snapshots, safe integer parsing
   generated/api.ts       types generated from the spec (checked in CI)
-scripts/                 migrate, seed, token, docker-smoke.sh
+scripts/                 migrate, seed (both need only DATABASE_URL), token, docker-smoke.sh
 test/                    HTTP tests against real Postgres, plus the contract checker
 Dockerfile               production image: compiled code, production dependencies, non-root
 docker-compose.yml       db, setup (migrate + seed), api and mock
@@ -223,18 +224,18 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 ## Edge cases handled
 
 - No access to a company or card → **404**, same as "does not exist", so ids of other customers are not confirmed ([ADR 0005](docs/adr/0005-404-when-the-user-has-no-access.md)).
-- Member without a card → empty state. Several cards → the newest one that is not closed. Frozen cards are shown.
+- Member without a card → empty state. Several cards → the newest one that is not closed, so a replacement card issued while the old one still works shows up with its "Activate card" button. Frozen cards are shown.
 - Spend uses the **calendar month in Swedish time**: a purchase at 00:30 on the 1st belongs to the new month, across summer/winter time.
-- Pending and settled purchases count, refunds reduce spend, declined ones are ignored. Spent never goes below zero and remaining never goes below zero.
+- Pending and settled purchases count, refunds reduce spend in the month they arrive, declined ones are ignored. Spent never goes below zero and remaining never goes below zero.
 - Invoices are visible to owners and admins only. Overdue the day after the due date, in Swedish time.
 - Pagination never repeats or skips rows when new transactions arrive; ties on the same timestamp are ordered by id; cursors from another card are rejected.
 - Activation requires the last 4 digits, hidden while the card is inactive. Wrong digits → **422** with attempts left; after 5 → **423** until support unlocks. Already active with the right digits → **200** (safe to retry); wrong digits on an active card, or a frozen or closed card → **409** ([ADR 0008](docs/adr/0008-activation-proof-and-lockout.md)).
-- Concurrent activation attempts cannot get extra guesses: the counter is one atomic `UPDATE`.
+- Concurrent activation attempts cannot get extra guesses: the counter is one atomic `UPDATE`. Right and wrong digits at the same time activate once. A holder who has left the company cannot see or activate the card.
 - Activation is also **rate limited per user** across all their cards (10 per 15 minutes by default) → **429** with `Retry-After`. It counts after the token check, so nobody can use up another user's attempts. The lockout protects one card; the rate limit protects the service.
 - Every response has `Cache-Control: no-store`, so no proxy or device cache keeps personal financial data.
-- Invalid input gets `400` with an `errors` list: every invalid field at once, where it is (`body`, `query`, `path`) and what is wrong, so the app can mark the right fields. A method the route does not take gets `405` with an `Allow` header; an unknown route gets `404` naming it.
-- Unknown request fields are rejected, not silently dropped. Non-JSON bodies get **415** instead of skipping validation. Tokens without an expiry or with a non-uuid subject are rejected.
-- Database down → `/health` returns **503**. A dropped idle connection is logged, not a crash; a failed transaction keeps its original error and the broken connection is discarded. Unexpected errors return a generic 500 and are logged, never leaked, and the app keeps serving (tested with a dead database). An error outside any request is logged as fatal and the process exits, so the platform starts a clean one.
+- Invalid input gets `400` with an `errors` list: every invalid field at once, where it is (`body`, `query`, `path`) and what is wrong, so the app can mark the right fields. A method the route does not take gets `405` with an `Allow` header (no `HEAD` routes outside the contract); an unknown route gets `404` naming it. `401` carries `WWW-Authenticate: Bearer`, and `instance` in an error is the path only, never a query with a cursor.
+- Unknown body fields are rejected, not silently dropped (unknown query parameters are ignored). Non-JSON bodies get **415** instead of skipping validation. Tokens without an expiry or with a non-uuid subject are rejected.
+- Database down or overloaded (connection lost, connect timeout, query timeout) → **503** with `Retry-After`, so the app can offer "Try again". `/live` still answers 200 (liveness, no database), while `/health` answers 503 (readiness), so the platform stops sending traffic instead of restarting healthy instances. A dropped idle connection is logged, not a crash; a failed transaction keeps its original error and the broken connection is discarded. A bug returns a generic 500 and is logged, never leaked, and the app keeps serving. An error outside any request is logged as fatal and the process exits, so the platform starts a clean one.
 
 ## Security
 
@@ -242,10 +243,10 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 |---|---|
 | Reading another customer's data | Access is checked in the database on every request (membership), never trusted from the token or the URL. No access and "does not exist" give the same `404`. `/v1/me/...` has no user id to tamper with. |
 | Forged or stolen tokens | HS256 only (no `alg: none`), and `exp`, `iat`, `sub`, `iss` and `aud` are required, so a token for another service is refused even with the same key. A token issued more than an hour ago is refused whatever its expiry says, which limits what a stolen token is worth; demo tokens live one hour. Tokens are redacted from the logs. |
-| Guessing activation digits | 5 wrong attempts lock the card (one atomic `UPDATE`, safe under concurrency), plus a per-user rate limit. |
+| Guessing activation digits | 5 wrong attempts lock the card (one atomic `UPDATE`, safe under concurrency), plus a per-user rate limit. Every outcome is an audit log event (`event: card_activation`, never the digits), the lockout a warning, and the card keeps `last_failed_activation_at` ([migration 004](db/migrations/004_activation_audit.sql)). |
 | Malformed or oversized input | Every request is validated against the contract: unknown fields are rejected, non-JSON bodies get `415`, bodies over 1 KiB get `413`. Bodies with `__proto__` keys are rejected (prototype pollution). |
 | SQL injection | Every query is parameterized; user input is never put into SQL text. |
-| A bug or breach in the app reaching the data | The app connects as `card_api`, which can read the tables and update three columns of `cards`, nothing else ([migration 003](db/migrations/003_app_role.sql)). Migrations run as the schema owner. The whole test suite runs as this role, so it proves the app needs no more. |
+| A bug or breach in the app reaching the data | The app connects as `card_api`, which can read the tables and update four columns of `cards`, nothing else ([migration 003](db/migrations/003_app_role.sql)). Migrations run as the schema owner. The whole test suite runs as this role, so it proves the app needs no more. |
 | Slow clients and slow queries | Requests time out after 10 s; queries are cancelled after 5 s and idle transactions after 10 s, so one request cannot hold a connection. |
 | Leaking internals | Unexpected errors return a generic `500`; the details go to the log with the request id. |
 | Browsers and caches | `Cache-Control: no-store`, `nosniff`, HSTS, and a content security policy that lets an API response run nothing. `/docs` gets its own narrow policy and cannot be framed. |
@@ -260,20 +261,22 @@ Before production, see "With more time": a real identity provider with asymmetri
 - **Every response has an `X-Request-Id`.** The app can send its own; otherwise the backend creates a uuid. The same id is on every log line for that request (`reqId`), so a user's error can be found in the logs from one value.
 - An incoming id is only trusted if it is short and plain (letters, digits, `.`, `_`, `-`, max 128). Anything else, such as a line break that could fake log lines, is replaced.
 - **Levels mean something:** `error` is a bug or an outage (unhandled error with stack trace, lost database connection), `warn` is degraded (health check cannot reach the database), `info` is one line in and one line out per request. Expected 4xx answers are not errors, so they do not trigger alerts.
-- Health checks are logged only when they fail, so probes every few seconds do not bury real requests.
+- Health checks (`/live`, `/health`) are logged only when they fail, so probes every few seconds do not bury real requests.
+- **Activation is audited:** every attempt logs `event: card_activation` with the card, the user and the outcome (`activated`, `wrong_digits` with attempts left, `locked`). The attempt that locks a card is a `warn`. The digits are never logged.
 - The `Authorization` header is redacted from the logs. `LOG_LEVEL` is validated at startup like the rest of the config.
 
 ## Testing
 
 ```bash
-npm test         # Testcontainers starts its own Postgres; needs Docker
+npm test                 # Testcontainers starts its own Postgres; needs Docker
+npm run test:coverage    # the same, with a coverage report in coverage/
 npm run lint && npm run typecheck && npm run spec:check
 ```
 
 Tests sit at three agreed seams:
 
 1. **The HTTP API**, via `app.inject()` against a real Postgres. This is what the app uses, so tests survive refactoring. No mocked database.
-2. **The spend period**, as a pure function, for time-zone and leap-year cases that are hard to hit over HTTP.
+2. **The spend period**, as a pure function, for time-zone, summer/winter time (March and October) and leap-year cases that are hard to hit over HTTP.
 3. **The contract.** Every response in every test is validated against `openapi.yaml`: status, content type and body. It is automatic (`checkEveryResponse` wraps `app.inject`), so no test can forget it. This check caught a real bug: OpenAPI 3.0 cannot express a nullable `$ref`, so the spec was moved to 3.1.
 
 The tests were checked by breaking the code on purpose (counting declined transactions, showing `last4` on inactive cards, not clamping spend, including closed cards, a read-then-write attempt counter). Each break made a test fail.

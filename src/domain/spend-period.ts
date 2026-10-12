@@ -1,7 +1,7 @@
 /** Spend is measured per calendar month in Swedish time (see CONTEXT.md, "Spend period"). */
 const TIME_ZONE = 'Europe/Stockholm';
 
-export interface SpendPeriod {
+interface SpendPeriod {
   /** First day, inclusive (YYYY-MM-DD). */
   start: string;
   /** Last day, inclusive (YYYY-MM-DD). */

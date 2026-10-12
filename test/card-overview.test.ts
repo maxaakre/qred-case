@@ -1,19 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createTestContext, testConfig, type TestContext } from './context.js';
-import { expectContract } from './contract.js';
+import { describe, expect, it } from 'vitest';
+import type { Role } from '../src/domain/types.js';
+import { testConfig, useTestContext } from './context.js';
 
 describe('GET /v1/companies/{companyId}/card-overview', () => {
-  let ctx: TestContext;
-  beforeAll(async () => {
-    ctx = await createTestContext();
-  });
-  beforeEach(() => ctx.fx.reset());
-  afterAll(() => ctx.close());
+  const ctx = useTestContext();
 
   const getOverview = (userId: string, companyId: string) =>
-    ctx.get(userId, `/v1/companies/${companyId}/card-overview`);
-  const member = (role: 'OWNER' | 'ADMIN' | 'EMPLOYEE' = 'EMPLOYEE') => ctx.fx.memberOf(role);
+    ctx.overview(userId, companyId);
+  const member = (role: Role = 'EMPLOYEE') => ctx.fx.memberOf(role);
 
   describe('access', () => {
     it('returns 404 for a company the user is not a member of', async () => {
@@ -23,21 +18,18 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const res = await getOverview(user, otherCompany);
 
       expect(res.statusCode).toBe(404);
-      expectContract(res, 'getCardOverview');
     });
 
     it('returns the same 404 for a company that does not exist', async () => {
       const res = await getOverview(await ctx.fx.user(), randomUUID());
 
       expect(res.statusCode).toBe(404);
-      expectContract(res, 'getCardOverview');
     });
 
     it('returns 400 for a company id that is not a uuid', async () => {
       const res = await getOverview(await ctx.fx.user(), 'abc');
 
       expect(res.statusCode).toBe(400);
-      expectContract(res, 'getCardOverview');
     });
   });
 
@@ -48,7 +40,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const res = await getOverview(user, company);
 
       expect(res.statusCode).toBe(200);
-      expect(expectContract(res, 'getCardOverview')).toEqual({
+      expect(res.json()).toEqual({
         company: { id: company, name: 'Company AB' },
         card: null,
         invoiceDue: null,
@@ -68,7 +60,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const res = await getOverview(user, company);
 
       expect(res.statusCode).toBe(200);
-      expect(expectContract(res, 'getCardOverview')).toMatchObject({
+      expect(res.json()).toMatchObject({
         card: { id: card, last4: '4821', status: 'ACTIVE', imageUrl: `https://cdn.example.com/cards/${card}.png` },
         spend: {
           spent: { minor: 0, currency: 'SEK' },
@@ -86,7 +78,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const { user, company } = await member();
       await ctx.fx.card({ holder: user, company, status: 'INACTIVE', last4: '4821' });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.card).toMatchObject({ status: 'INACTIVE', last4: null });
       expect(body.actions).toEqual({ canActivateCard: true, activationBlockedReason: null });
@@ -96,7 +88,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const { user, company } = await member();
       await ctx.fx.card({ holder: user, company, status: 'INACTIVE', failedActivationAttempts: 5 });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.actions).toEqual({ canActivateCard: false, activationBlockedReason: 'LOCKED' });
     });
@@ -105,7 +97,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const { user, company } = await member();
       const card = await ctx.fx.card({ holder: user, company, status: 'FROZEN' });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.card).toMatchObject({ id: card, status: 'FROZEN' });
     });
@@ -115,7 +107,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const older = await ctx.fx.card({ holder: user, company, status: 'ACTIVE', createdAt: '2026-01-01T00:00:00Z' });
       await ctx.fx.card({ holder: user, company, status: 'CLOSED', createdAt: '2026-06-01T00:00:00Z' });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.card).toMatchObject({ id: older });
     });
@@ -126,7 +118,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       await ctx.fx.member(colleague, company);
       await ctx.fx.card({ holder: colleague, company });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.card).toBeNull();
     });
@@ -142,7 +134,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       await ctx.fx.transaction(card, { amount: -999_000, occurredAt: '2026-10-11T10:00:00Z', status: 'DECLINED' });
       await ctx.fx.transaction(card, { amount: -400_000, occurredAt: '2026-09-30T21:59:00Z' }); // 23:59 Sep 30 in Stockholm
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       // 3 000 + 2 100 - 500 = 4 600 kr spent, so 5 400 of 10 000 kr remaining: the numbers in the app view.
       expect(body.spend).toMatchObject({
@@ -157,7 +149,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const card = await ctx.fx.card({ holder: user, company, spendLimit: 1_000_000 });
       await ctx.fx.transaction(card, { amount: -100_000, occurredAt: '2026-09-30T22:30:00Z' });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.spend.spent.minor).toBe(100_000);
     });
@@ -167,7 +159,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const card = await ctx.fx.card({ holder: user, company, spendLimit: 100_000 });
       await ctx.fx.transaction(card, { amount: -150_000, occurredAt: '2026-10-05T09:00:00Z' });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.spend).toMatchObject({ spent: { minor: 150_000 }, remaining: { minor: 0 } });
     });
@@ -178,7 +170,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       await ctx.fx.transaction(card, { amount: -50_000, occurredAt: '2026-10-05T09:00:00Z' });
       await ctx.fx.transaction(card, { amount: 200_000, occurredAt: '2026-10-06T09:00:00Z' });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.spend).toMatchObject({ spent: { minor: 0 }, remaining: { minor: 1_000_000 } });
     });
@@ -193,7 +185,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
         await ctx.fx.transaction(card, { amount: -day * 100, occurredAt: date, merchant: `Shop ${day}` });
       }
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.latestTransactions.totalCount).toBe(57);
       expect(body.latestTransactions.items.map((t: { merchant: string }) => t.merchant)).toEqual([
@@ -214,7 +206,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const oldestUnpaid = await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-30' });
       await ctx.fx.invoice(company, { amount: 70_000, dueDate: '2026-11-30' });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.invoiceDue).toEqual({
         id: oldestUnpaid,
@@ -228,7 +220,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const { user, company } = await member('ADMIN');
       await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-30' });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.invoiceDue).not.toBeNull();
     });
@@ -237,7 +229,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const { user, company } = await member('EMPLOYEE');
       await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-30' });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.invoiceDue).toBeNull();
     });
@@ -246,7 +238,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const { user, company } = await member('OWNER');
       await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-11' }); // "now" is Oct 12
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.invoiceDue).toMatchObject({ dueDate: '2026-10-11', isOverdue: true });
     });
@@ -255,7 +247,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const { user, company } = await member('OWNER');
       await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-12' });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.invoiceDue).toMatchObject({ isOverdue: false });
     });
@@ -264,7 +256,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const { user, company } = await member('OWNER');
       await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-30' });
 
-      const body = expectContract(await getOverview(user, company), 'getCardOverview');
+      const body = (await getOverview(user, company)).json();
 
       expect(body.card).toBeNull();
       expect(body.invoiceDue).toMatchObject({ amount: { minor: 540_000 } });

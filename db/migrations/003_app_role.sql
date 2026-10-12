@@ -1,7 +1,8 @@
--- The privileges the app needs at runtime, and nothing more. They are granted to a role
--- without login; each environment creates the login user in this role (docker-compose
--- locally, infrastructure as code and Secrets Manager in AWS), so no password lives in
--- a migration. Migrations and the demo seed run as the schema owner.
+-- The privileges the app needs at runtime, and nothing more, granted to the role card_api.
+-- No password lives in a migration: locally db/init creates card_api itself as the login
+-- (so this block skips it); in AWS card_api stays NOLOGIN and infrastructure as code
+-- creates a login user in it, with its password in Secrets Manager. The tests do the same
+-- (card_api_test IN ROLE card_api). Migrations and the demo seed run as the schema owner.
 
 DO $$
 BEGIN

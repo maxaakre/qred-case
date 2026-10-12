@@ -83,14 +83,13 @@ export function withDemoDocs(spec: Readonly<Record<string, unknown>>): Record<st
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const docs: any = structuredClone(spec);
 
-  // Every call that needs a token gets a field for its own token or demo user, with a
-  // hint about who may call it. The page turns the field into an Authorization header
-  // (requestInterceptor below); the server never sees it.
-  type Operation = { operationId?: string; security?: unknown[]; parameters?: unknown[] };
+  // Every call that needs a token says who may call it, so the reader knows which demo
+  // user to sign in as (POST /demo/token). The token itself always goes in Authorize.
+  type Operation = { operationId?: string; description?: string };
   for (const operations of Object.values<Record<string, Operation>>(docs.paths)) {
     for (const operation of Object.values(operations)) {
-      if (operation.security?.length === 0) continue; // public, like /health
-      operation.parameters = [demoAuthParameter(operation.operationId), ...(operation.parameters ?? [])];
+      const who = operation.operationId && WHO_MAY_CALL[operation.operationId];
+      if (who) operation.description = [operation.description, `**Demo:** ${who}`].filter(Boolean).join('\n\n');
     }
   }
 
@@ -108,7 +107,6 @@ export function withDemoDocs(spec: Readonly<Record<string, unknown>>): Record<st
 
   const activation = docs.paths['/v1/cards/{cardId}/activation'].post;
   activation.parameters = [
-    { ...demoAuthParameter('activateCard'), example: 'erik' },
     { ...docs.components.parameters.CardId, example: DEMO.erikCard, description: "Erik's inactive card (demo)" },
   ];
   activation.requestBody.content['application/json'].examples = {
@@ -168,32 +166,9 @@ export const demoDocsUiConfig: FastifySwaggerUiConfigOptions = {
       body: JSON.stringify({ user: 'anna' }),
     })
       .then((res) => res.json())
-      .then((body: { token: string }) => (window as DemoWindow).demoSwagger?.preauthorizeApiKey('bearerAuth', body.token));
-  },
-  // X-Demo-Auth becomes the Authorization header for that call only: a pasted token as
-  // it is, a demo user name or id as that user's token. An unknown user sends no token,
-  // so the call gets a clear 401 instead of silently running as someone else.
-  requestInterceptor: function (req) {
-    const value = String(req.headers['X-Demo-Auth'] ?? '').trim();
-    delete req.headers['X-Demo-Auth'];
-    if (!value) return req;
-    const token = value.replace(/^Bearer\s+/i, '');
-    // A JWT has three dot-separated parts; anything else is a user name or id.
-    if (token.split('.').length === 3) {
-      req.headers.Authorization = `Bearer ${token}`;
-      return req;
-    }
-    return fetch('/demo/token', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ user: value }),
-    })
-      .then((res) => (res.ok ? res.json() : { token: '' }))
-      .then((body: { token: string }) => {
-        if (body.token) req.headers.Authorization = `Bearer ${body.token}`;
-        else delete req.headers.Authorization;
-        return req;
-      });
+      .then((body: { token: string }) => (window as DemoWindow).demoSwagger?.preauthorizeApiKey('bearerAuth', body.token))
+      // Signing in automatically is a convenience: if it fails, Authorize still works by hand.
+      .catch((err: unknown) => console.warn('Demo sign-in failed', err));
   },
   responseInterceptor: function (res) {
     const token = res.body?.token;
@@ -204,28 +179,13 @@ export const demoDocsUiConfig: FastifySwaggerUiConfigOptions = {
   },
 };
 
-/** Who may call each operation, shown next to the X-Demo-Auth field. */
+/** Who may call each operation, added to its description on /docs. */
 const WHO_MAY_CALL: Record<string, string> = {
   listMyCompanies: 'Any signed-in user. `anna` is in two companies, `erik` in one.',
   getCardOverview: 'A member of the company. `anna` (owner) also sees the invoice; `erik` (employee) does not.',
   listCardTransactions: 'Only the card holder. The card filled in is `anna`\'s.',
-  activateCard: 'Only the card holder can activate. The card filled in is `erik`\'s.',
+  activateCard: 'Only the card holder can activate. The card filled in is `erik`\'s: run `POST /demo/token` with `erik` first.',
 };
-
-function demoAuthParameter(operationId?: string) {
-  return {
-    name: 'X-Demo-Auth',
-    in: 'header',
-    required: false,
-    description: [
-      'Demo mode: who this call runs as. Paste a token (with or without `Bearer`), or type a demo user: `anna`, `erik` or their user id. Empty uses Authorize.',
-      operationId && WHO_MAY_CALL[operationId],
-    ]
-      .filter(Boolean)
-      .join('\n\n'),
-    schema: { type: 'string' },
-  };
-}
 
 const demoTokenOperation = {
   tags: ['Demo'],

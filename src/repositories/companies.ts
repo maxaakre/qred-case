@@ -1,8 +1,8 @@
+import type { Schemas } from '../api.js';
 import type { Queryable } from '../db.js';
-import type { components } from '../generated/api.js';
+import type { Role } from '../domain/types.js';
 
-type CompanySummary = components['schemas']['CompanySummary'];
-export type Role = 'OWNER' | 'ADMIN' | 'EMPLOYEE';
+type CompanySummary = Schemas['CompanySummary'];
 
 export function companiesRepository(db: Queryable) {
   return {
@@ -12,7 +12,7 @@ export function companiesRepository(db: Queryable) {
            FROM companies c
            JOIN company_members m ON m.company_id = c.id
           WHERE m.user_id = $1
-          ORDER BY c.name, c.id`,
+          ORDER BY c.name COLLATE "sv-SE-x-icu", c.id`,
         [userId],
       );
       return rows;

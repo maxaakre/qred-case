@@ -1,23 +1,12 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createTestContext, type TestContext } from './context.js';
-import { expectContract } from './contract.js';
+import { describe, expect, it } from 'vitest';
+import { useTestContext } from './context.js';
 
 describe('rate limit on POST /v1/cards/{cardId}/activation', () => {
   const MAX = 3;
-  let ctx: TestContext;
-  beforeAll(async () => {
-    ctx = await createTestContext({ activationRateLimit: { max: MAX, windowSeconds: 900 } });
-  });
-  beforeEach(() => ctx.fx.reset());
-  afterAll(() => ctx.close());
+  const ctx = useTestContext({ activationRateLimit: { max: MAX, windowSeconds: 900 } });
 
-  async function inactiveCardHolder() {
-    const { user, company } = await ctx.fx.memberOf();
-    const card = await ctx.fx.card({ holder: user, company, status: 'INACTIVE', last4: '4821' });
-    return { user, company, card };
-  }
-  const activate = (userId: string, cardId: string, last4: string) =>
-    ctx.post(userId, `/v1/cards/${cardId}/activation`, { last4 });
+  const inactiveCardHolder = () => ctx.fx.cardHolder();
+  const activate = (userId: string, cardId: string, last4: string) => ctx.activate(userId, cardId, { last4 });
 
   it('returns 429 with Retry-After once a user has used up their attempts', async () => {
     const { user, card } = await inactiveCardHolder();
@@ -27,7 +16,7 @@ describe('rate limit on POST /v1/cards/{cardId}/activation', () => {
 
     expect(res.statusCode).toBe(429);
     expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
-    expect(expectContract(res, 'activateCard')).toMatchObject({ status: 429, title: 'Too Many Requests' });
+    expect(res.json()).toMatchObject({ status: 429, title: 'Too Many Requests' });
   });
 
   it('counts per user, so one user cannot block another', async () => {
@@ -42,7 +31,7 @@ describe('rate limit on POST /v1/cards/{cardId}/activation', () => {
 
   it('only limits activation, so the screen can be reloaded any number of times', async () => {
     const { user, company } = await inactiveCardHolder();
-    const overview = () => ctx.get(user, `/v1/companies/${company}/card-overview`);
+    const overview = () => ctx.overview(user, company);
     for (let i = 0; i < MAX; i++) await overview();
 
     const res = await overview();

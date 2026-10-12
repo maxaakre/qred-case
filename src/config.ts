@@ -3,7 +3,7 @@ import { z } from 'zod';
 const schema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   PORT: z.coerce.number().int().min(0).max(65535).default(3000),
-  DATABASE_URL: z.string().url(),
+  DATABASE_URL: z.url(),
   // HS256 needs a long secret; refuse to start with a weak one.
   JWT_SECRET: z.string().min(32),
   // Who issues the tokens and who they are for. A token for another service is rejected,
@@ -14,8 +14,8 @@ const schema = z.object({
   // Access tokens from the sign-in provider live 5-15 minutes; this is the safety net.
   JWT_MAX_AGE_SECONDS: z.coerce.number().int().positive().default(3600),
   SUPPORT_PHONE: z.string().min(1),
-  SUPPORT_EMAIL: z.string().email(),
-  SUPPORT_URL: z.string().url(),
+  SUPPORT_EMAIL: z.email(),
+  SUPPORT_URL: z.url(),
   // Activation attempts per user per window, across all their cards.
   ACTIVATION_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   ACTIVATION_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),
@@ -33,7 +33,7 @@ export interface JwtSettings {
 }
 
 export interface Config {
-  logLevel: 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
+  logLevel: z.infer<typeof schema>['LOG_LEVEL'];
   port: number;
   databaseUrl: string;
   jwt: JwtSettings;

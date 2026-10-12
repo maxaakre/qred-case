@@ -3,3 +3,4 @@
 openapi/openapi.yaml:
   operation-4xx-response:
     - '#/paths/~1health/get/responses'
+    - '#/paths/~1live/get/responses'

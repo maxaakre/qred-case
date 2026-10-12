@@ -1,12 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestContext, type TestContext } from './context.js';
+import { describe, expect, it } from 'vitest';
+import { useTestContext } from './context.js';
 
 describe('API docs at /docs', () => {
-  let ctx: TestContext;
-  beforeAll(async () => {
-    ctx = await createTestContext();
-  });
-  afterAll(() => ctx.close());
+  const ctx = useTestContext({}, { reset: false });
 
   it('serves Swagger UI without a token', async () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/docs/' });
@@ -21,16 +17,12 @@ describe('API docs at /docs', () => {
     const spec = res.json();
     expect(spec.info.title).toBe('Card Overview API');
     const operationIds = Object.values(spec.paths).flatMap((ops) => Object.values(ops as object).map((op) => op.operationId));
-    expect(operationIds.sort()).toEqual(['activateCard', 'getCardOverview', 'getHealth', 'listCardTransactions', 'listMyCompanies']);
+    expect(operationIds.sort()).toEqual(['activateCard', 'getCardOverview', 'getHealth', 'getLiveness', 'listCardTransactions', 'listMyCompanies']);
   });
 });
 
 describe('API docs turned off (DOCS_ENABLED=false)', () => {
-  let ctx: TestContext;
-  beforeAll(async () => {
-    ctx = await createTestContext({ docsEnabled: false });
-  });
-  afterAll(() => ctx.close());
+  const ctx = useTestContext({ docsEnabled: false }, { reset: false });
 
   it.each(['/docs/', '/docs/json'])('does not serve %s', async (url) => {
     const res = await ctx.app.inject({ method: 'GET', url });

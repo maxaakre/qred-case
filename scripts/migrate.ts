@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import pg from 'pg';
+import { databaseUrlFromEnv } from './database-url.js';
 import { isMain } from './is-main.js';
 
 const MIGRATIONS_DIR = path.resolve(import.meta.dirname, '../db/migrations');
@@ -47,7 +48,6 @@ export async function migrate(connectionString: string): Promise<string[]> {
 }
 
 if (isMain(import.meta.url)) {
-  const url = process.env.DATABASE_URL ?? 'postgres://app:app@localhost:5432/cards';
-  const applied = await migrate(url);
+  const applied = await migrate(databaseUrlFromEnv());
   console.log(applied.length ? `Applied: ${applied.join(', ')}` : 'Database is up to date');
 }

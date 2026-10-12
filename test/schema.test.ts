@@ -1,15 +1,10 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
-import { createTestContext, testConfig, type TestContext } from './context.js';
+import { useTestContext, testConfig } from './context.js';
 
 /** Rules the database itself enforces, whatever code writes to it. */
 describe('database constraints', () => {
-  let ctx: TestContext;
-  beforeAll(async () => {
-    ctx = await createTestContext();
-  });
-  beforeEach(() => ctx.fx.reset());
-  afterAll(() => ctx.close());
+  const ctx = useTestContext();
 
   it("refuses a transaction in another currency than the card's", async () => {
     const { user, company } = await ctx.fx.memberOf();

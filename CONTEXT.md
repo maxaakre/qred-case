@@ -53,7 +53,7 @@ _Avoid_: Budget, limit (ambiguous)
 The calendar month, in Swedish time, that spend is measured over.
 
 **Spent**:
-Purchases minus refunds in the current spend period, counting pending and settled transactions, never below zero. A refund for an earlier period returns money on the invoice, not extra room under the spend limit.
+Purchases minus refunds in the current spend period, counting pending and settled transactions, never below zero. A refund counts in the period it arrives, whatever period its purchase was in.
 _Avoid_: Balance, used
 
 **Remaining spend**:

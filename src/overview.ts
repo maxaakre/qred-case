@@ -1,16 +1,15 @@
 import type pg from 'pg';
+import type { Schemas } from './api.js';
 import type { Config } from './config.js';
 import { withSnapshot } from './db.js';
 import { activationBlockedReason, spendSummary } from './domain/card-rules.js';
 import { spendPeriodFor, swedishDate } from './domain/spend-period.js';
-import type { components } from './generated/api.js';
+import type { Role } from './domain/types.js';
 import { apiCard, apiInvoiceDue, apiTransaction, money } from './mappers.js';
 import { notFound } from './problem.js';
 import { cardsRepository } from './repositories/cards.js';
-import { companiesRepository, type Role } from './repositories/companies.js';
+import { companiesRepository } from './repositories/companies.js';
 import { invoicesRepository } from './repositories/invoices.js';
-
-type Schemas = components['schemas'];
 
 const LATEST_TRANSACTIONS = 3;
 

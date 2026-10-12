@@ -21,6 +21,15 @@ describe('spendPeriodFor', () => {
     expect(spendPeriodFor(new Date('2026-10-31T22:59:00Z'))).toMatchObject({ start: '2026-10-01', end: '2026-10-31' });
   });
 
+  it('starts in winter time and ends in summer time in March', () => {
+    expect(spendPeriodFor(new Date('2027-03-15T12:00:00Z'))).toEqual({
+      start: '2027-03-01',
+      end: '2027-03-31',
+      startsAt: new Date('2027-02-28T23:00:00Z'), // 00:00 Stockholm winter time
+      endsAt: new Date('2027-03-31T22:00:00Z'), // 00:00 Apr 1, after the switch to summer time
+    });
+  });
+
   it('handles February in a leap year', () => {
     expect(spendPeriodFor(new Date('2028-02-15T12:00:00Z'))).toMatchObject({ start: '2028-02-01', end: '2028-02-29' });
   });

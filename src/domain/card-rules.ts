@@ -1,12 +1,14 @@
-import type { CardRow } from '../repositories/cards.js';
+import type { ActivationBlockedReason, Card } from './types.js';
 
 /** Wrong last4 attempts allowed before activation locks (ADR 0008). */
 export const MAX_ACTIVATION_ATTEMPTS = 5;
 
-export type ActivationBlockedReason = 'NO_CARD' | 'NOT_INACTIVE' | 'LOCKED';
-
-/** Why the user cannot activate the card, or null if they can. The app shows text based on this. */
-export function activationBlockedReason(card: CardRow | null): ActivationBlockedReason | null {
+/**
+ * Why the user cannot activate the card, or null if they can. The app shows text based on this.
+ * The activation UPDATE repeats this rule in SQL (`ACTIVATABLE` in repositories/cards.ts) so it
+ * stays atomic; change both together.
+ */
+export function activationBlockedReason(card: Card | null): ActivationBlockedReason | null {
   if (!card) return 'NO_CARD';
   if (card.status !== 'INACTIVE') return 'NOT_INACTIVE';
   if (card.failedActivationAttempts >= MAX_ACTIVATION_ATTEMPTS) return 'LOCKED';

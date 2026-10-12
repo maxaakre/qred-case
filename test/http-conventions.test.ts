@@ -1,36 +1,16 @@
-import { Writable } from 'node:stream';
-import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { FastifyInstance } from 'fastify';
-import { buildApp } from '../src/app.js';
-import { checkEveryResponse } from './contract.js';
+import { describe, expect, it } from 'vitest';
 import { isUuid } from '../src/uuid.js';
-import { NOW, testConfig } from './context.js';
+import { logCapture, useTestContext } from './context.js';
 
 describe('HTTP conventions on every response', () => {
-  const logLines: { reqId?: string }[] = [];
-  let pool: pg.Pool;
-  let app: FastifyInstance;
-  beforeAll(async () => {
-    pool = new pg.Pool({ connectionString: testConfig.databaseUrl });
-    const stream = new Writable({
-      write(chunk, _enc, done) {
-        logLines.push(JSON.parse(chunk.toString()));
-        done();
-      },
-    });
-    app = await buildApp({ pool, config: testConfig, now: () => NOW, logger: { level: 'info', stream } });
-    checkEveryResponse(app);
-  });
-  afterAll(async () => {
-    await app.close();
-    await pool.end();
-  });
+  const log = logCapture();
+  const ctx = useTestContext({}, { reset: false, logger: log.logger });
+  const logLines = log.lines;
 
-  const health = (headers: Record<string, string> = {}) => app.inject({ method: 'GET', url: '/health', headers });
+  const health = (headers: Record<string, string> = {}) => ctx.app.inject({ method: 'GET', url: '/health', headers });
 
   it("keeps the caller's id, so the app and the logs share one id", async () => {
-    const res = await app.inject({ method: 'GET', url: '/v1/me/companies', headers: { 'x-request-id': 'app-7f3a.42_x' } });
+    const res = await ctx.app.inject({ method: 'GET', url: '/v1/me/companies', headers: { 'x-request-id': 'app-7f3a.42_x' } });
 
     expect(res.headers['x-request-id']).toBe('app-7f3a.42_x');
     expect(logLines.some((line) => line.reqId === 'app-7f3a.42_x')).toBe(true);
@@ -52,13 +32,13 @@ describe('HTTP conventions on every response', () => {
   });
 
   it('tells every cache not to store API responses, which hold personal financial data', async () => {
-    const res = await app.inject({ method: 'GET', url: '/v1/me/companies' });
+    const res = await ctx.app.inject({ method: 'GET', url: '/v1/me/companies' });
 
     expect(res.headers['cache-control']).toBe('no-store');
   });
 
   it('sends security headers, and a policy that lets an API response run nothing in a browser', async () => {
-    const res = await app.inject({ method: 'GET', url: '/v1/me/companies' });
+    const res = await ctx.app.inject({ method: 'GET', url: '/v1/me/companies' });
 
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.headers['strict-transport-security']).toContain('max-age=');
@@ -66,7 +46,7 @@ describe('HTTP conventions on every response', () => {
   });
 
   it('lets the docs page load its own scripts and call the API and the mock, nothing else', async () => {
-    const res = await app.inject({ method: 'GET', url: '/docs/' });
+    const res = await ctx.app.inject({ method: 'GET', url: '/docs/' });
     const csp = String(res.headers['content-security-policy']);
 
     expect(csp).toContain("script-src 'self'");
@@ -84,7 +64,7 @@ describe('HTTP conventions on every response', () => {
 
   it('is on error responses too, where support needs it most', async () => {
     // Fails validation, before any route hook or handler runs.
-    const res = await app.inject({ method: 'GET', url: '/v1/cards/not-a-uuid/transactions', headers: { 'x-request-id': 'support-case-1' } });
+    const res = await ctx.app.inject({ method: 'GET', url: '/v1/cards/not-a-uuid/transactions', headers: { 'x-request-id': 'support-case-1' } });
 
     expect(res.statusCode).toBe(400);
     expect(res.headers['x-request-id']).toBe('support-case-1');

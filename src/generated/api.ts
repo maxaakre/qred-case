@@ -4,6 +4,28 @@
  */
 
 export interface paths {
+    "/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Liveness
+         * @description The process is up and can answer. It never touches the database, so a
+         *     database outage does not make the platform restart healthy instances.
+         *     The app does not need it.
+         */
+        get: operations["getLiveness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -12,8 +34,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Liveness and database readiness
-         * @description For load balancers and monitoring. The app does not need it.
+         * Readiness, including the database
+         * @description Whether this instance can serve requests: for the load balancer, which
+         *     stops sending traffic while it answers `503`. The app does not need it.
          */
         get: operations["getHealth"];
         put?: never;
@@ -395,6 +418,8 @@ export interface components {
         /** @description Token missing, invalid or expired. Sign the user in again. */
         Unauthorized: {
             headers: {
+                /** @description The scheme to use, always `Bearer` */
+                "WWW-Authenticate"?: "Bearer";
                 [name: string]: unknown;
             };
             content: {
@@ -445,7 +470,7 @@ export interface components {
                  *       "type": "about:blank",
                  *       "title": "Conflict",
                  *       "status": 409,
-                 *       "detail": "A FROZEN card cannot be activated",
+                 *       "detail": "The card is FROZEN and cannot be activated",
                  *       "instance": "/v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a01/activation"
                  *     }
                  */
@@ -527,12 +552,46 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description The database cannot be reached */
-        ServiceUnavailable: {
+        /**
+         * @description A bug in the backend. The details are in the backend logs under the
+         *     response's `X-Request-Id`; the body never shows them. Show a generic error.
+         */
+        InternalServerError: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
+                /**
+                 * @example {
+                 *       "type": "about:blank",
+                 *       "title": "Internal Server Error",
+                 *       "status": 500,
+                 *       "instance": "/v1/me/companies"
+                 *     }
+                 */
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /**
+         * @description The database cannot be reached or is overloaded. Nothing was changed.
+         *     Show "Try again" and wait `Retry-After` seconds before retrying.
+         */
+        ServiceUnavailable: {
+            headers: {
+                /** @description Seconds to wait before trying again */
+                "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "type": "about:blank",
+                 *       "title": "Service Unavailable",
+                 *       "status": 503,
+                 *       "detail": "The service is temporarily unavailable",
+                 *       "instance": "/v1/me/companies"
+                 *     }
+                 */
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
@@ -549,6 +608,29 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getLiveness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The process is up */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "ok";
+                    };
+                };
+            };
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -594,6 +676,8 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getCardOverview: {
@@ -620,6 +704,8 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     listCardTransactions: {
@@ -651,6 +737,8 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     activateCard: {
@@ -705,6 +793,8 @@ export interface operations {
             422: components["responses"]["WrongActivationDigits"];
             423: components["responses"]["ActivationLocked"];
             429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
 }

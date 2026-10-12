@@ -33,23 +33,23 @@ for (const event of ['uncaughtException', 'unhandledRejection'] as const) {
 // Finish in-flight requests and close the pool on shutdown (e.g. a Kubernetes rollout).
 // Below Docker's 10 s stop grace period, so the timeout is logged before the process is killed.
 const SHUTDOWN_TIMEOUT_MS = 8_000;
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.once(signal, async () => {
-    app.log.info({ signal }, 'Shutting down');
-    // A stuck request must not keep the process alive until the platform kills it without a log line.
-    setTimeout(() => {
-      app.log.error('Shutdown timed out');
-      process.exit(1);
-    }, SHUTDOWN_TIMEOUT_MS).unref();
-    try {
-      await app.close();
-      await pool.end();
-      process.exit(0);
-    } catch (err) {
-      app.log.error({ err }, 'Shutdown failed');
-      process.exit(1);
-    }
-  });
+async function shutdown(signal: NodeJS.Signals) {
+  app.log.info({ signal }, 'Shutting down');
+  // A stuck request must not keep the process alive until the platform kills it without a log line.
+  setTimeout(() => {
+    app.log.error('Shutdown timed out');
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS).unref();
+  try {
+    await app.close();
+    await pool.end();
+    process.exit(0);
+  } catch (err) {
+    app.log.error({ err }, 'Shutdown failed');
+    process.exit(1);
+  }
 }
+// `shutdown` handles its own errors, so nothing is lost by not awaiting it here.
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => void shutdown(signal));
 
 await app.listen({ port: config.port, host: '0.0.0.0' });

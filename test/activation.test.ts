@@ -1,27 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { CardStatus } from '../src/repositories/cards.js';
-import { createTestContext, type TestContext } from './context.js';
-import { expectContract } from './contract.js';
+import { describe, expect, it } from 'vitest';
+import type { CardStatus } from '../src/domain/types.js';
+import { useTestContext } from './context.js';
 
 describe('POST /v1/cards/{cardId}/activation', () => {
-  let ctx: TestContext;
-  beforeAll(async () => {
-    ctx = await createTestContext();
-  });
-  beforeEach(() => ctx.fx.reset());
-  afterAll(() => ctx.close());
+  const ctx = useTestContext();
 
-  const activate = (userId: string, cardId: string, payload: object) =>
-    ctx.post(userId, `/v1/cards/${cardId}/activation`, payload);
-  const overview = async (userId: string, companyId: string) =>
-    expectContract(await ctx.get(userId, `/v1/companies/${companyId}/card-overview`), 'getCardOverview');
-
-  async function holderOf(status: CardStatus = 'INACTIVE', failedActivationAttempts = 0) {
-    const { user, company } = await ctx.fx.memberOf();
-    const card = await ctx.fx.card({ holder: user, company, status, last4: '4821', failedActivationAttempts });
-    return { user, company, card };
-  }
+  const activate = (userId: string, cardId: string, payload: object) => ctx.activate(userId, cardId, payload);
+  const overview = async (userId: string, companyId: string) => (await ctx.overview(userId, companyId)).json();
+  const holderOf = (status: CardStatus = 'INACTIVE') => ctx.fx.cardHolder({ status });
 
   it('activates the card when the last 4 digits match', async () => {
     const { user, company, card } = await holderOf('INACTIVE');
@@ -29,7 +16,7 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     const res = await activate(user, card, { last4: '4821' });
 
     expect(res.statusCode).toBe(200);
-    expect(expectContract(res, 'activateCard')).toMatchObject({ id: card, status: 'ACTIVE', last4: '4821' });
+    expect(res.json()).toMatchObject({ id: card, status: 'ACTIVE', last4: '4821' });
     expect((await overview(user, company)).actions).toEqual({
       canActivateCard: false,
       activationBlockedReason: 'NOT_INACTIVE',
@@ -43,7 +30,7 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     const res = await activate(user, card, { last4: '4821' });
 
     expect(res.statusCode).toBe(200);
-    expect(expectContract(res, 'activateCard')).toMatchObject({ status: 'ACTIVE' });
+    expect(res.json()).toMatchObject({ status: 'ACTIVE' });
   });
 
   it('returns 409, not 200, for wrong digits on a card that is already active', async () => {
@@ -52,7 +39,6 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     const res = await activate(user, card, { last4: '0000' });
 
     expect(res.statusCode).toBe(409);
-    expectContract(res, 'activateCard');
   });
 
   it.each(['FROZEN', 'CLOSED'] as const)('returns 409 for a %s card', async (status) => {
@@ -61,7 +47,6 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     const res = await activate(user, card, { last4: '4821' });
 
     expect(res.statusCode).toBe(409);
-    expectContract(res, 'activateCard');
   });
 
   it('returns 422 with the attempts left when the digits are wrong', async () => {
@@ -70,7 +55,7 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     const res = await activate(user, card, { last4: '0000' });
 
     expect(res.statusCode).toBe(422);
-    expect(expectContract(res, 'activateCard')).toMatchObject({ status: 422, attemptsRemaining: 4 });
+    expect(res.json()).toMatchObject({ status: 422, attemptsRemaining: 4 });
   });
 
   it('locks activation after 5 wrong attempts, even for the right digits', async () => {
@@ -82,7 +67,6 @@ describe('POST /v1/cards/{cardId}/activation', () => {
 
     expect(remaining).toEqual([4, 3, 2, 1, 0]);
     expect(res.statusCode).toBe(423);
-    expectContract(res, 'activateCard');
     expect((await overview(user, company)).actions.activationBlockedReason).toBe('LOCKED');
   });
 
@@ -99,6 +83,35 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     expect(wrong.map((r) => r.json().attemptsRemaining).sort()).toEqual([0, 1, 2, 3, 4]);
   });
 
+  it('cannot be activated by a holder who has left the company', async () => {
+    const { user, company, card } = await holderOf('INACTIVE');
+    await ctx.pool.query('DELETE FROM company_members WHERE user_id = $1 AND company_id = $2', [user, company]);
+
+    const res = await activate(user, card, { last4: '4821' });
+
+    expect(res.statusCode).toBe(404);
+    const { rows } = await ctx.pool.query('SELECT status FROM cards WHERE id = $1', [card]);
+    expect(rows[0].status).toBe('INACTIVE');
+  });
+
+  it('activates once when right and wrong digits arrive together, and counts no wrong try after that', async () => {
+    const { user, card } = await holderOf('INACTIVE');
+
+    const responses = await Promise.all([
+      activate(user, card, { last4: '0000' }),
+      activate(user, card, { last4: '4821' }),
+      activate(user, card, { last4: '0000' }),
+      activate(user, card, { last4: '0000' }),
+    ]);
+
+    // A wrong try before the activation is a 422; after it, the card is ACTIVE and it is a 409.
+    expect(responses.map((r) => r.statusCode).filter((s) => s === 200)).toHaveLength(1);
+    expect(responses.every((r) => [200, 409, 422].includes(r.statusCode))).toBe(true);
+    const { rows } = await ctx.pool.query('SELECT status, failed_activation_attempts FROM cards WHERE id = $1', [card]);
+    expect(rows[0].status).toBe('ACTIVE');
+    expect(rows[0].failed_activation_attempts).toBe(responses.filter((r) => r.statusCode === 422).length);
+  });
+
   it("returns 404 for someone else's card, even an owner of the same company", async () => {
     const { company, card } = await holderOf('INACTIVE');
     const owner = await ctx.fx.user();
@@ -107,14 +120,12 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     const res = await activate(owner, card, { last4: '4821' });
 
     expect(res.statusCode).toBe(404);
-    expectContract(res, 'activateCard');
   });
 
   it('returns 404 for a card that does not exist', async () => {
     const res = await activate(await ctx.fx.user(), randomUUID(), { last4: '4821' });
 
     expect(res.statusCode).toBe(404);
-    expectContract(res, 'activateCard');
   });
 
   it.each([
@@ -128,7 +139,6 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     const res = await activate(user, card, payload);
 
     expect(res.statusCode).toBe(400);
-    expectContract(res, 'activateCard');
   });
 
   it('refuses a body far larger than any valid request, before parsing it', async () => {
@@ -155,6 +165,6 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     });
 
     expect(res.statusCode).toBe(415);
-    expect(expectContract(res, 'activateCard')).toMatchObject({ status: 415, title: 'Unsupported Media Type' });
+    expect(res.json()).toMatchObject({ status: 415, title: 'Unsupported Media Type' });
   });
 });

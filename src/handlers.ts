@@ -1,13 +1,12 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { activationService } from './activation.js';
 import type { AppDeps } from './app.js';
-import type { components } from './generated/api.js';
+import type { BodyOf, PathOf, QueryOf, Schemas } from './api.js';
 import { cardOverviewService } from './overview.js';
 import { HttpProblem } from './problem.js';
 import { companiesRepository } from './repositories/companies.js';
 import { transactionsService } from './transactions.js';
 
-type Schemas = components['schemas'];
 
 /** One handler per operationId in openapi/openapi.yaml. Handlers stay thin: HTTP in, service call, HTTP out. */
 export function createHandlers({ pool, config, now }: AppDeps) {
@@ -17,6 +16,12 @@ export function createHandlers({ pool, config, now }: AppDeps) {
   const activation = activationService(pool);
 
   return {
+    /** Liveness: the process answers. Never the database, so an outage restarts nothing. */
+    async getLiveness(_req: FastifyRequest, reply: FastifyReply) {
+      return reply.send({ status: 'ok' });
+    },
+
+    /** Readiness: this instance can serve requests, database included. */
     async getHealth(req: FastifyRequest, reply: FastifyReply) {
       try {
         await pool.query('SELECT 1');
@@ -31,20 +36,21 @@ export function createHandlers({ pool, config, now }: AppDeps) {
       return { items: await companies.listForUser(req.userId) };
     },
 
-    async getCardOverview(req: FastifyRequest<{ Params: { companyId: string } }>): Promise<Schemas['CardOverview']> {
+    async getCardOverview(req: FastifyRequest<{ Params: PathOf<'getCardOverview'> }>): Promise<Schemas['CardOverview']> {
       return overview.get(req.userId, req.params.companyId);
     },
 
     async listCardTransactions(
-      req: FastifyRequest<{ Params: { cardId: string }; Querystring: { limit: number; cursor?: string } }>,
+      // Validation fills in the default `limit` from the spec, so it is always there.
+      req: FastifyRequest<{ Params: PathOf<'listCardTransactions'>; Querystring: Required<Pick<QueryOf<'listCardTransactions'>, 'limit'>> & QueryOf<'listCardTransactions'> }>,
     ): Promise<Schemas['TransactionPage']> {
       return transactions.list(req.userId, req.params.cardId, req.query.limit, req.query.cursor);
     },
 
     async activateCard(
-      req: FastifyRequest<{ Params: { cardId: string }; Body: { last4: string } }>,
+      req: FastifyRequest<{ Params: PathOf<'activateCard'>; Body: BodyOf<'activateCard'> }>,
     ): Promise<Schemas['Card']> {
-      return activation.activate(req.userId, req.params.cardId, req.body.last4);
+      return activation.activate(req.userId, req.params.cardId, req.body.last4, req.log);
     },
   };
 }

@@ -11,6 +11,16 @@ export default tseslint.config(
     },
   },
   {
+    // Rules that need the types: a promise nobody awaits loses its error, and an async
+    // function where a callback is expected runs unchecked.
+    files: ['src/**/*.ts', 'test/**/*.ts', 'scripts/**/*.ts'],
+    languageOptions: { parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname } },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+    },
+  },
+  {
     // Test helpers walk the untyped spec object.
     files: ['test/**'],
     rules: { '@typescript-eslint/no-explicit-any': 'off' },

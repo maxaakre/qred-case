@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { truncateAll } from '../scripts/seed.js';
-import type { CardStatus, TransactionRow } from '../src/repositories/cards.js';
-import type { Role } from '../src/repositories/companies.js';
+import type { CardStatus, Role } from '../src/domain/types.js';
+import type { TransactionRow } from '../src/repositories/cards.js';
 
 /** Inserts test data with sensible defaults. Every helper returns the new row's id. */
 export function fixtures(pool: pg.Pool) {
@@ -63,6 +63,14 @@ export function fixtures(pool: pg.Pool) {
         ],
       );
       return id;
+    },
+
+    /** A member of a new company holding one card (INACTIVE, digits 4821, by default). */
+    async cardHolder(opts: { status?: CardStatus; last4?: string; failedActivationAttempts?: number; role?: Role } = {}) {
+      const { user, company } = await this.memberOf(opts.role);
+      const card = await this.card({ holder: user, company, status: opts.status ?? 'INACTIVE', last4: opts.last4 ?? '4821',
+        ...(opts.failedActivationAttempts !== undefined && { failedActivationAttempts: opts.failedActivationAttempts }) });
+      return { user, company, card };
     },
 
     async transaction(cardId: string, opts: {

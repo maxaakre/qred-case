@@ -1,4 +1,4 @@
-import type { FastifyError, FastifyInstance } from 'fastify';
+import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { STATUS_CODES } from 'node:http';
 
 /** An error that becomes an RFC 9457 problem+json response. */
@@ -15,8 +15,26 @@ export class HttpProblem extends Error {
 
 export const notFound = (detail: string) => new HttpProblem(404, 'Not Found', detail);
 
+/** How long a client should wait after a 503 before it tries again. */
+const RETRY_AFTER_SECONDS = 5;
+
+// Postgres SQLSTATEs that mean "not now", not "this request is wrong": a cancelled
+// (timed out) query, too many connections, a shutdown, or any lost connection (class 08).
+const UNAVAILABLE_SQLSTATES = new Set(['57014', '53300', '57P01', '57P02', '57P03']);
+const UNAVAILABLE_NODE_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENOTFOUND']);
+
+/** The database is down, unreachable or overloaded. Worth a retry, unlike a bug. */
+function isDatabaseUnavailable(err: unknown): boolean {
+  const { code, message } = err as { code?: unknown; message?: unknown };
+  if (typeof code === 'string' && (UNAVAILABLE_SQLSTATES.has(code) || code.startsWith('08') || UNAVAILABLE_NODE_CODES.has(code))) {
+    return true;
+  }
+  // pg-pool and pg throw plain errors (no code) when connecting times out or a connection drops.
+  return typeof message === 'string' && /timeout exceeded when trying to connect|Connection terminated/i.test(message);
+}
+
 /** One invalid input, in the OpenAPI terms the app knows from the contract. */
-export interface FieldError {
+interface FieldError {
   in: 'body' | 'query' | 'path' | 'header';
   field: string;
   message: string;
@@ -66,6 +84,24 @@ function describe(e: AjvError): string {
   }
 }
 
+/** Sends a problem as RFC 9457 problem+json. `instance` is the path only: a query can hold a cursor. */
+function sendProblem(reply: FastifyReply, req: FastifyRequest, problem: HttpProblem) {
+  // RFC 9110: a 401 says which scheme to use.
+  if (problem.status === 401) reply.header('www-authenticate', 'Bearer');
+  if (problem.status === 503) reply.header('retry-after', String(RETRY_AFTER_SECONDS));
+  return reply
+    .status(problem.status)
+    .type('application/problem+json')
+    .send({
+      type: 'about:blank',
+      title: problem.title,
+      status: problem.status,
+      ...(problem.detail && { detail: problem.detail }),
+      instance: req.url.split('?')[0],
+      ...problem.extensions,
+    });
+}
+
 export function registerProblemHandlers(app: FastifyInstance) {
   app.setErrorHandler((err: FastifyError | HttpProblem, req, reply) => {
     let problem: HttpProblem;
@@ -81,22 +117,16 @@ export function registerProblemHandlers(app: FastifyInstance) {
       const status = (err as FastifyError).statusCode!;
       // The standard reason phrase, never an internal class name (RFC 9457).
       problem = new HttpProblem(status, STATUS_CODES[status] ?? 'Client Error', err.message);
+    } else if (isDatabaseUnavailable(err)) {
+      // An outage, not a bug: the app can retry, and the alert is on the database.
+      req.log.error({ err }, 'Database unavailable');
+      problem = new HttpProblem(503, 'Service Unavailable', 'The service is temporarily unavailable');
     } else {
       // Never leak internals; the log has the details.
       req.log.error({ err }, 'Unhandled error');
       problem = new HttpProblem(500, 'Internal Server Error');
     }
-    return reply
-      .status(problem.status)
-      .type('application/problem+json')
-      .send({
-        type: 'about:blank',
-        title: problem.title,
-        status: problem.status,
-        ...(problem.detail && { detail: problem.detail }),
-        instance: req.url,
-        ...problem.extensions,
-      });
+    return sendProblem(reply, req, problem);
   });
 
   // Every route, to tell "no such route" (404) from "not with this method" (405).
@@ -113,8 +143,6 @@ export function registerProblemHandlers(app: FastifyInstance) {
       ? new HttpProblem(405, 'Method Not Allowed', `${req.method} is not allowed here. Allowed: ${allowed.join(', ')}`)
       : new HttpProblem(404, 'Not Found', `No route ${req.method} ${path}`);
     if (allowed.length) reply.header('allow', allowed.join(', '));
-    return reply.status(problem.status).type('application/problem+json').send({
-      type: 'about:blank', title: problem.title, status: problem.status, detail: problem.detail, instance: req.url,
-    });
+    return sendProblem(reply, req, problem);
   });
 }

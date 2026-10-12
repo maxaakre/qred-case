@@ -1,25 +1,34 @@
+import type { Schemas } from '../api.js';
 import { type Queryable, toSafeInteger } from '../db.js';
-import type { components } from '../generated/api.js';
-
-export type CardStatus = components['schemas']['CardStatus'];
-
-export interface CardRow {
-  id: string;
-  last4: string;
-  status: CardStatus;
-  imageUrl: string;
-  currency: string;
-  spendLimitMinor: number;
-  failedActivationAttempts: number;
-}
+import type { Card, CardStatus } from '../domain/types.js';
 
 export interface TransactionRow {
   id: string;
   merchant: string;
   amountMinor: number;
   currency: string;
-  status: components['schemas']['Transaction']['status'];
+  status: Schemas['Transaction']['status'];
   occurredAt: Date;
+}
+
+/** Columns as pg returns them: bigint as a string. */
+interface CardDbRow {
+  id: string;
+  last4: string;
+  status: CardStatus;
+  image_url: string;
+  currency: string;
+  spend_limit_minor: string;
+  failed_activation_attempts: number;
+}
+
+interface TransactionDbRow {
+  id: string;
+  merchant: string;
+  amount_minor: string;
+  currency: string;
+  status: TransactionRow['status'];
+  occurred_at: Date;
 }
 
 // Every card query aliases the table as `c`, every transaction query as `t`.
@@ -30,39 +39,43 @@ const TRANSACTION_COLUMNS = 't.id, t.merchant, t.amount_minor, t.currency, t.sta
 const HOLDER_IS_MEMBER = `EXISTS (SELECT 1 FROM company_members m
                                    WHERE m.company_id = c.company_id AND m.user_id = c.holder_user_id)`;
 
-/** A card the holder may activate: inactive and not locked. */
+/** A card the holder may activate: inactive and not locked. Same rule as `activationBlockedReason` (domain/card-rules.ts). */
 const ACTIVATABLE = `c.id = $1 AND c.holder_user_id = $2
                      AND c.status = 'INACTIVE' AND c.failed_activation_attempts < $4
                      AND ${HOLDER_IS_MEMBER}`;
 
-function cardFromRow(r: Record<string, unknown>): CardRow {
+function cardFromRow(r: CardDbRow): Card {
   return {
-    id: r.id as string,
-    last4: r.last4 as string,
-    status: r.status as CardStatus,
-    imageUrl: r.image_url as string,
-    currency: r.currency as string,
-    spendLimitMinor: toSafeInteger(r.spend_limit_minor as string),
-    failedActivationAttempts: r.failed_activation_attempts as number,
+    id: r.id,
+    last4: r.last4,
+    status: r.status,
+    imageUrl: r.image_url,
+    currency: r.currency,
+    spendLimitMinor: toSafeInteger(r.spend_limit_minor),
+    failedActivationAttempts: r.failed_activation_attempts,
   };
 }
 
-function transactionFromRow(r: Record<string, unknown>): TransactionRow {
+function transactionFromRow(r: TransactionDbRow): TransactionRow {
   return {
-    id: r.id as string,
-    merchant: r.merchant as string,
-    amountMinor: toSafeInteger(r.amount_minor as string),
-    currency: r.currency as string,
-    status: r.status as TransactionRow['status'],
-    occurredAt: r.occurred_at as Date,
+    id: r.id,
+    merchant: r.merchant,
+    amountMinor: toSafeInteger(r.amount_minor),
+    currency: r.currency,
+    status: r.status,
+    occurredAt: r.occurred_at,
   };
 }
 
 export function cardsRepository(db: Queryable) {
   return {
-    /** The holder's most recently created card in the company that is not CLOSED. */
-    async findCurrentCard(holderUserId: string, companyId: string): Promise<CardRow | null> {
-      const { rows } = await db.query(
+    /**
+     * The holder's most recently created card in the company that is not CLOSED.
+     * A holder can have several open cards: a replacement is issued INACTIVE while the old
+     * card still works. The newest is shown, so the app offers to activate the replacement.
+     */
+    async findCurrentCard(holderUserId: string, companyId: string): Promise<Card | null> {
+      const { rows } = await db.query<CardDbRow>(
         `SELECT ${CARD_COLUMNS}
            FROM cards c
           WHERE c.holder_user_id = $1 AND c.company_id = $2 AND c.status <> 'CLOSED'
@@ -77,8 +90,8 @@ export function cardsRepository(db: Queryable) {
      * A card the user holds, in a company they are still a member of. Any status:
      * a closed card's history stays visible. Null means "not found" to the caller (ADR 0005).
      */
-    async findHeldCard(cardId: string, userId: string): Promise<CardRow | null> {
-      const { rows } = await db.query(
+    async findHeldCard(cardId: string, userId: string): Promise<Card | null> {
+      const { rows } = await db.query<CardDbRow>(
         `SELECT ${CARD_COLUMNS} FROM cards c WHERE c.id = $1 AND c.holder_user_id = $2 AND ${HOLDER_IS_MEMBER}`,
         [cardId, userId],
       );
@@ -114,7 +127,7 @@ export function cardsRepository(db: Queryable) {
      * Page 1 (afterId = null) is also the overview's "latest transactions".
      */
     async transactionsPage(cardId: string, limit: number, afterId: string | null): Promise<TransactionRow[]> {
-      const { rows } = await db.query(
+      const { rows } = await db.query<TransactionDbRow>(
         `SELECT ${TRANSACTION_COLUMNS}
            FROM transactions t
           WHERE t.card_id = $1
@@ -145,7 +158,7 @@ export function cardsRepository(db: Queryable) {
      * cannot both pass the attempt limit (ADR 0008).
      */
     async activateIfDigitsMatch(cardId: string, holderUserId: string, last4: string, maxAttempts: number) {
-      const { rows } = await db.query(
+      const { rows } = await db.query<CardDbRow>(
         `UPDATE cards c SET status = 'ACTIVE', activated_at = now()
           WHERE ${ACTIVATABLE} AND c.last4 = $3
           RETURNING ${CARD_COLUMNS}`,
@@ -157,7 +170,8 @@ export function cardsRepository(db: Queryable) {
     /** Counts a wrong attempt atomically and returns the new count, or null if the card is not activatable. */
     async recordFailedActivation(cardId: string, holderUserId: string, last4: string, maxAttempts: number) {
       const { rows } = await db.query<{ failed_activation_attempts: number }>(
-        `UPDATE cards c SET failed_activation_attempts = c.failed_activation_attempts + 1
+        `UPDATE cards c SET failed_activation_attempts = c.failed_activation_attempts + 1,
+                            last_failed_activation_at = now()
           WHERE ${ACTIVATABLE} AND c.last4 <> $3
           RETURNING c.failed_activation_attempts`,
         [cardId, holderUserId, last4, maxAttempts],

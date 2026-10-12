@@ -1,13 +1,13 @@
-import type { components } from './generated/api.js';
-import type { CardRow, TransactionRow } from './repositories/cards.js';
+import type { Schemas } from './api.js';
+import type { Card } from './domain/types.js';
+import type { TransactionRow } from './repositories/cards.js';
 import type { InvoiceRow } from './repositories/invoices.js';
 
-/** Database rows to API shapes. The only place that decides what the app sees of a row. */
-type Schemas = components['schemas'];
+/** Domain objects and rows to API shapes. The only place that decides what the app sees. */
 
 export const money = (minor: number, currency: string): Schemas['Money'] => ({ minor, currency });
 
-export function apiCard(card: CardRow): Schemas['Card'] {
+export function apiCard(card: Card): Schemas['Card'] {
   return {
     id: card.id,
     // The digits are the activation proof, so they stay hidden until the card is active (ADR 0008).

@@ -1,11 +1,9 @@
 import type pg from 'pg';
-import type { components } from './generated/api.js';
+import type { Schemas } from './api.js';
 import { apiTransaction } from './mappers.js';
 import { HttpProblem, notFound } from './problem.js';
 import { cardsRepository } from './repositories/cards.js';
 import { isUuid } from './uuid.js';
-
-type Schemas = components['schemas'];
 
 const invalidCursor = () => new HttpProblem(400, 'Bad Request', 'Invalid cursor');
 
