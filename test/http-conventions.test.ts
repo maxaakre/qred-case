@@ -3,6 +3,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app.js';
+import { checkEveryResponse } from './contract.js';
 import { isUuid } from '../src/uuid.js';
 import { NOW, testConfig } from './context.js';
 
@@ -19,6 +20,7 @@ describe('HTTP conventions on every response', () => {
       },
     });
     app = await buildApp({ pool, config: testConfig, now: () => NOW, logger: { level: 'info', stream } });
+    checkEveryResponse(app);
   });
   afterAll(async () => {
     await app.close();

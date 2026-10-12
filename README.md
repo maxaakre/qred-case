@@ -253,7 +253,7 @@ Tests sit at three agreed seams:
 
 1. **The HTTP API**, via `app.inject()` against a real Postgres. This is what the app uses, so tests survive refactoring. No mocked database.
 2. **The spend period**, as a pure function, for time-zone and leap-year cases that are hard to hit over HTTP.
-3. **The contract.** Every response in every test is validated against `openapi.yaml`: status, content type and body. This check caught a real bug: OpenAPI 3.0 cannot express a nullable `$ref`, so the spec was moved to 3.1.
+3. **The contract.** Every response in every test is validated against `openapi.yaml`: status, content type and body. It is automatic (`checkEveryResponse` wraps `app.inject`), so no test can forget it. This check caught a real bug: OpenAPI 3.0 cannot express a nullable `$ref`, so the spec was moved to 3.1.
 
 The tests were checked by breaking the code on purpose (counting declined transactions, showing `last4` on inactive cards, not clamping spend, including closed cards, a read-then-write attempt counter). Each break made a test fail.
 

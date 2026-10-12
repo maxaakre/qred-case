@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { Ajv } from 'ajv';
 import addFormats from 'ajv-formats';
-import type { LightMyRequestResponse } from 'fastify';
+import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { expect } from 'vitest';
 import { parse } from 'yaml';
 
 /**
  * Seam 3: every response the tests see must match openapi/openapi.yaml.
- * Status code, content type and body are all checked against the spec.
+ * Status code, content type and body are all checked against the spec, automatically
+ * for every `app.inject` (see `checkEveryResponse`).
  */
 const spec = parse(readFileSync(new URL('../openapi/openapi.yaml', import.meta.url), 'utf8'));
 const ajv = new Ajv({ strict: false, allErrors: true });
@@ -54,4 +55,29 @@ export function expectContract(res: LightMyRequestResponse, operationId: string)
     );
   }
   return body;
+}
+
+/** The operationId for a request, or undefined for routes outside the contract (/docs, demo mode). */
+function operationFor(method: string, url: string): string | undefined {
+  const { pathname } = new URL(url, 'http://test');
+  for (const [path, methods] of Object.entries<Record<string, { operationId?: string }>>(spec.paths)) {
+    const template = new RegExp(`^${path.replace(/\{[^}]+\}/g, '[^/]+')}$`);
+    const op = methods[method.toLowerCase()];
+    if (op?.operationId && template.test(pathname)) return op.operationId;
+  }
+  return undefined;
+}
+
+/**
+ * Makes every `app.inject` check its response against the contract, so no test can
+ * forget to. A response the spec does not allow fails the test that made the request.
+ */
+export function checkEveryResponse(app: FastifyInstance) {
+  const inject = app.inject.bind(app);
+  app.inject = (async (opts: InjectOptions) => {
+    const res = await inject(opts);
+    const operationId = typeof opts.url === 'string' ? operationFor(opts.method ?? 'GET', opts.url) : undefined;
+    if (operationId) expectContract(res, operationId);
+    return res;
+  }) as FastifyInstance['inject'];
 }

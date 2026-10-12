@@ -4,6 +4,7 @@ import { inject } from 'vitest';
 import { buildApp } from '../src/app.js';
 import type { Config } from '../src/config.js';
 import { signDevToken } from '../src/dev-token.js';
+import { checkEveryResponse } from './contract.js';
 import { fixtures, type Fixtures } from './fixtures.js';
 
 export const testConfig: Config = {
@@ -37,6 +38,7 @@ export interface TestContext {
 export async function createTestContext(overrides: Partial<Config> = {}): Promise<TestContext> {
   const pool = new pg.Pool({ connectionString: testConfig.databaseUrl });
   const app = await buildApp({ pool, config: { ...testConfig, ...overrides }, now: () => NOW });
+  checkEveryResponse(app);
   const bearer = async (userId: string) => ({
     authorization: `Bearer ${await signDevToken(testConfig.jwtSecret, userId)}`,
   });
