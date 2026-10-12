@@ -23,7 +23,32 @@ docker compose up
 | `api` | The API on http://localhost:3000, docs on http://localhost:3000/docs |
 | `mock` | The contract as a Prism mock on http://localhost:4010 |
 
-Try it with the demo users:
+### Try it in Swagger
+
+Open http://localhost:3000/docs. Demo mode is on in `docker compose` ([ADR 0009](docs/adr/0009-demo-tokens-outside-the-contract.md)), so everything happens in the browser:
+
+1. **Get a token.** Open **Demo → `POST /demo/token`**, click **Try it out**, keep `{"user": "anna"}` and click **Execute**. Copy `token` from the response.
+2. **Sign in.** Click **Authorize** at the top, paste the token, click **Authorize** and **Close**.
+3. **Call the API.** Every operation has the demo ids filled in: click **Try it out**, then **Execute**.
+
+| Operation | What you see as Anna |
+|---|---|
+| `GET /v1/me/companies` | Bygg Norr AB and Company AB |
+| `GET /v1/companies/{companyId}/card-overview` | The design: active card •••• 4821, 5 400 of 10 000 kr spent, invoice due, 3 latest transactions of 57 |
+| `GET /v1/cards/{cardId}/transactions` | The first 20 transactions; pass `nextCursor` as `cursor` for the next page |
+
+4. **Activate a card.** Repeat steps 1–2 with `{"user": "erik"}`. Open `POST /v1/cards/{cardId}/activation` (Erik's card is filled in) and pick a body from **Examples**:
+
+| Example | Result |
+|---|---|
+| Wrong digits (`0000`) | `422` with `attemptsRemaining: 4`. After 5 wrong tries: `423` locked |
+| Erik's card (`7310`) | `200`, the card is `ACTIVE`. Run the overview again as Erik: the digits show and the button is gone |
+
+To start over, reset the demo data: `docker compose run --rm setup`.
+
+The contract file contains no demo data: the token endpoint and the prefilled ids are added only on `/docs`, and only when `DEMO_MODE=true`. Without Docker, use `npm run token -- anna` and paste that token instead.
+
+### Try it with curl
 
 ```bash
 ANNA=$(docker compose exec -T api node dist/scripts/token.js anna)   # owner of Company AB, active card
@@ -53,7 +78,7 @@ npm run token -- anna
 
 **Production build:** the `Dockerfile` builds a small image with the compiled code and production dependencies only, running as a non-root user. Without Docker: `npm run build`, then `npm run db:migrate:prod` and `npm run start:prod`. Two instances migrating at once are safe: they take turns on a database lock.
 
-**API docs:** http://localhost:3000/docs (Swagger UI), written for frontend: how to build the screen, what to show for every error, formats, and a named example for every state of the screen. With `docker compose up` it runs in demo mode ([ADR 0009](docs/adr/0009-demo-tokens-outside-the-contract.md)): call **Demo → POST /demo/token**, click **Authorize**, paste the token, and every call is ready to **Execute** with the demo ids filled in. Use `erik` for activation. The contract file itself contains no demo data, and demo mode is off unless `DEMO_MODE=true`.
+**API docs:** http://localhost:3000/docs (Swagger UI), written for frontend: how to build the screen, what to show for every error, formats, and a named example for every state of the screen. See [Try it in Swagger](#try-it-in-swagger) for the demo flow.
 
 **Logs:** `docker compose logs -f api` and `npm start` print one JSON object per line, as in production; `npm run dev` prints readable, coloured logs. Set the level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
 
