@@ -242,7 +242,9 @@ components:
       description: |
         Spend in the current calendar month (Europe/Stockholm) against the
         limit the user set. Pending and settled purchases count, refunds
-        reduce spend, declined transactions are ignored.
+        reduce spend, declined transactions are ignored. `spent` never goes
+        below 0, so a refund for last month's purchase cannot push
+        `remaining` above `limit`.
       required: [spent, limit, remaining, periodStart, periodEnd]
       properties:
         spent: { $ref: '#/components/schemas/Money' }
