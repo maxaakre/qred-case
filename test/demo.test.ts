@@ -120,6 +120,14 @@ describe('demo tokens, DEMO_MODE on', () => {
     expect(stranger.statusCode).toBe(400);
   });
 
+  it('explains the body of every call that has one', async () => {
+    const spec = (await ctx.app.inject({ method: 'GET', url: '/docs/json' })).json();
+
+    expect(spec.paths['/demo/token'].post.requestBody.description).toMatch(/`user`/);
+    expect(Object.keys(spec.paths['/demo/token'].post.requestBody.content['application/json'].examples)).toEqual(['anna', 'erik']);
+    expect(spec.paths['/v1/cards/{cardId}/activation'].post.requestBody.description).toMatch(/`last4`/);
+  });
+
   it("prefills the demo ids, with Erik's inactive card for activation", async () => {
     const spec = (await ctx.app.inject({ method: 'GET', url: '/docs/json' })).json();
 

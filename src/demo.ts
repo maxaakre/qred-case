@@ -230,13 +230,23 @@ function demoAuthParameter(operationId?: string) {
 const demoTokenOperation = {
   tags: ['Demo'],
   summary: 'Get a token for a demo user',
-  description: 'Signs you in on this page as soon as it succeeds (the locks close). `anna` sees the design; use `erik` to try activation.',
+  description: 'Switches who you are signed in as on this page. The page opens signed in as `anna`.',
   operationId: 'getDemoToken',
   // No lock: this is how you get a token in the first place.
   security: [],
   requestBody: {
     required: true,
-    content: { 'application/json': { schema: requestSchema, example: { user: 'anna' } } },
+    description:
+      '`user`: who to sign in as on this page. `anna` (owner, active card) sees the design; `erik` (employee, inactive card, digits 7310) can try activation. A user id works too.',
+    content: {
+      'application/json': {
+        schema: requestSchema,
+        examples: {
+          anna: { summary: 'anna: owner, active card (the design)', value: { user: 'anna' } },
+          erik: { summary: 'erik: employee, inactive card (try activation)', value: { user: 'erik' } },
+        },
+      },
+    },
   },
   responses: {
     '200': { description: 'Token for the user', content: { 'application/json': { schema: responseSchema } } },

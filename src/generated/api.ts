@@ -639,6 +639,10 @@ export interface operations {
             };
             cookie?: never;
         };
+        /**
+         * @description `last4`: the last 4 digits printed on the physical card, exactly as the
+         *     user typed them (4 digits, no spaces). No other fields are allowed.
+         */
         requestBody: {
             content: {
                 "application/json": {
