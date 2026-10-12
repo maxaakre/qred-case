@@ -5,11 +5,19 @@ import { isMain } from './is-main.js';
 
 const MIGRATIONS_DIR = path.resolve(import.meta.dirname, '../db/migrations');
 
-/** Applies every .sql file in db/migrations once, in name order, each in its own transaction. */
+/** Any fixed number; every instance that migrates takes the same lock. */
+const MIGRATION_LOCK = 72_421;
+
+/**
+ * Applies every .sql file in db/migrations once, in name order, each in its own transaction.
+ * Two deploys starting at once take turns: the second waits for the lock, then finds nothing to do.
+ */
 export async function migrate(connectionString: string): Promise<string[]> {
   const client = new pg.Client({ connectionString });
   await client.connect();
   try {
+    // Released when the connection closes, also if this process crashes.
+    await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK]);
     await client.query(
       'CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())',
     );

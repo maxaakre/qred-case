@@ -16,10 +16,11 @@ export function createSecurityHandlers(jwtSecret: string) {
   const key = new TextEncoder().encode(jwtSecret);
   return {
     async bearerAuth(req: FastifyRequest) {
-      const header = req.headers.authorization;
-      if (!header?.startsWith('Bearer ')) throw Object.assign(new Error('Missing bearer token'), { statusCode: 401 });
+      // The scheme name is case-insensitive in HTTP (RFC 9110), the token is not.
+      const token = /^Bearer +(\S+)$/i.exec(req.headers.authorization ?? '')?.[1];
+      if (!token) throw Object.assign(new Error('Missing bearer token'), { statusCode: 401 });
       try {
-        const { payload } = await jwtVerify(header.slice(7), key, {
+        const { payload } = await jwtVerify(token, key, {
           algorithms: ['HS256'],
           // jose only checks `exp` when present; a token without one would never expire.
           requiredClaims: ['exp', 'sub'],

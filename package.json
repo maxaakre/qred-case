@@ -7,9 +7,12 @@
     "node": ">=26"
   },
   "scripts": {
+    "setup": "node -e \"fs.existsSync('.env')||fs.copyFileSync('.env.example','.env')\" && npm run db:up && npm run db:migrate && npm run db:seed",
     "dev": "tsx watch --env-file=.env src/server.ts | pino-pretty --translateTime SYS:HH:MM:ss.l --ignore pid,hostname",
     "start": "tsx --env-file=.env src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node -e \"for (const dir of ['openapi', 'db']) fs.cpSync(dir, 'dist/' + dir, { recursive: true })\"",
+    "start:prod": "node dist/src/server.js",
+    "db:migrate:prod": "node dist/scripts/migrate.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
@@ -21,7 +24,6 @@
     "db:migrate": "tsx --env-file=.env scripts/migrate.ts",
     "db:seed": "tsx --env-file=.env scripts/seed.ts",
     "token": "tsx --env-file=.env scripts/token.ts",
-    "setup": "node -e \"fs.existsSync('.env')||fs.copyFileSync('.env.example','.env')\" && npm run db:up && npm run db:migrate && npm run db:seed",
     "spec:check": "npm run spec:lint && npm run spec:types && git diff --exit-code src/generated/api.ts"
   },
   "devDependencies": {
@@ -43,9 +45,9 @@
     "yaml": "^2.9.1"
   },
   "dependencies": {
-    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/rate-limit": "^11.2.1",
     "@fastify/swagger": "^9.9.2",
-    "@fastify/swagger-ui": "^5.2.6",
+    "@fastify/swagger-ui": "^6.1.2",
     "fastify": "^5.12.5",
     "fastify-openapi-glue": "^4.11.5",
     "jose": "^6.2.12",

@@ -33,7 +33,9 @@ curl -X POST -H "Authorization: Bearer $ERIK" -H 'content-type: application/json
 
 `npm run db:seed` resets the demo data at any time.
 
-**API docs:** http://localhost:3000/docs (Swagger UI). Click **Authorize**, paste a token from `npm run token -- anna`, and try the calls in the browser. The page shows `openapi.yaml` as written (static mode), so the docs cannot drift from the contract.
+**Production build:** `npm run build` compiles to `dist/` and copies the spec and migrations next to it; run with `npm run db:migrate:prod` and `npm run start:prod`. Two instances migrating at once are safe: they take turns on a database lock.
+
+**API docs:** http://localhost:3000/docs (Swagger UI). Click **Authorize**, paste a token from `npm run token -- anna` (or `erik` for activation), and try the calls in the browser; the server menu also switches to the Prism mock. The page shows `openapi.yaml` as written (static mode), so the docs cannot drift from the contract.
 
 **Logs:** `npm run dev` prints readable, coloured logs; `npm start` prints one JSON object per line, as in production. Set the level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
 
@@ -200,6 +202,8 @@ The tests were checked by breaking the code on purpose (counting declined transa
 
 CI runs lint, typecheck, spec validation (including that generated types are up to date) and tests on Node 26, the version in `.nvmrc`. Node 26 becomes LTS at the end of October 2026, so a service shipping now starts on the release with the longest support.
 
+CI also fails on known high-severity vulnerabilities in production dependencies (`npm audit --omit=dev`).
+
 On pull requests, [`oasdiff`](https://github.com/oasdiff/oasdiff) compares the spec with `main` and **fails on breaking changes** (a removed field, a field that became optional, a new required input), because the app already in users' phones would break. Adding fields and endpoints passes. This was verified with a test pull request that made `spend.remaining` optional.
 
 ## With more time
@@ -215,6 +219,7 @@ On pull requests, [`oasdiff`](https://github.com/oasdiff/oasdiff) compares the s
 - Real identity provider (BankID via an OIDC provider) with short-lived tokens and refresh; asymmetric keys (RS256/ES256) so services can verify without the secret.
 - A shared rate-limit store (Redis) once there is more than one instance, and a per-IP limit at the edge (API Gateway or WAF) before requests reach the service.
 - Idempotency keys on POSTs for payments-style operations.
+- Turn `/docs` off, or put it behind auth, in production if the API is not meant to be public.
 - Observability: OpenTelemetry traces (W3C `traceparent` next to `X-Request-Id`), RED metrics per route, alerts on 5xx and latency.
 - `ETag` / `Cache-Control` on the overview; push updates (SSE or push notifications) when a transaction arrives.
 - Deploy: container on ECS Fargate or Lambda behind API Gateway, RDS PostgreSQL, secrets in Secrets Manager, infrastructure as code (CDK), migrations as a pipeline step.

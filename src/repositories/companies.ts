@@ -4,10 +4,10 @@ import type { components } from '../generated/api.js';
 type CompanySummary = components['schemas']['CompanySummary'];
 export type Role = 'OWNER' | 'ADMIN' | 'EMPLOYEE';
 
-export function companiesRepository(pool: Queryable) {
+export function companiesRepository(db: Queryable) {
   return {
     async listForUser(userId: string): Promise<CompanySummary[]> {
-      const { rows } = await pool.query<CompanySummary>(
+      const { rows } = await db.query<CompanySummary>(
         `SELECT c.id, c.name
            FROM companies c
            JOIN company_members m ON m.company_id = c.id
@@ -20,7 +20,7 @@ export function companiesRepository(pool: Queryable) {
 
     /** The user's membership in a company, or null. Membership is the access boundary (ADR 0006). */
     async findMembership(userId: string, companyId: string): Promise<{ company: CompanySummary; role: Role } | null> {
-      const { rows } = await pool.query<{ id: string; name: string; role: Role }>(
+      const { rows } = await db.query<{ id: string; name: string; role: Role }>(
         `SELECT c.id, c.name, m.role
            FROM companies c
            JOIN company_members m ON m.company_id = c.id

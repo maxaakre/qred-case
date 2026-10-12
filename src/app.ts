@@ -70,6 +70,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // from the code, so the contract stays the single source.
   await app.register(swagger, { mode: 'static', specification: { path: SPEC, baseDir: dirname(SPEC) } });
   await app.register(swaggerUi, { routePrefix: '/docs' });
+  // Logs "ContentTypeParser for 'application/problem+json' not found" at startup: the plugin
+  // also lists response types. That is intended; such request bodies get 415 (tested).
   await app.register(openapiGlue, {
     specification: SPEC,
     serviceHandlers: createHandlers(deps),

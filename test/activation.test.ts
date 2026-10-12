@@ -131,14 +131,18 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     expectContract(res, 'activateCard');
   });
 
-  it('answers a non-JSON body with a standard problem title', async () => {
+  it.each([
+    ['text/plain', '4821'],
+    // Only a response type in the spec; must not become a way around body validation.
+    ['application/problem+json', '{"last4":"4821","pin":"1234"}'],
+  ])('answers a %s body with 415 and a standard problem title', async (contentType, payload) => {
     const { user, card } = await holderOf('INACTIVE');
 
     const res = await ctx.app.inject({
       method: 'POST',
       url: `/v1/cards/${card}/activation`,
-      headers: { authorization: `Bearer ${await ctx.token(user)}`, 'content-type': 'text/plain' },
-      payload: '4821',
+      headers: { authorization: `Bearer ${await ctx.token(user)}`, 'content-type': contentType },
+      payload,
     });
 
     expect(res.statusCode).toBe(415);

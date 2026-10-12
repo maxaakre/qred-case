@@ -21,12 +21,23 @@ const app = await buildApp({
 pool.on('error', (err) => app.log.error({ err }, 'Idle database client failed'));
 
 // Finish in-flight requests and close the pool on shutdown (e.g. a Kubernetes rollout).
+const SHUTDOWN_TIMEOUT_MS = 10_000;
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {
     app.log.info({ signal }, 'Shutting down');
-    await app.close();
-    await pool.end();
-    process.exit(0);
+    // A stuck request must not keep the process alive until the platform kills it without a log line.
+    setTimeout(() => {
+      app.log.error('Shutdown timed out');
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS).unref();
+    try {
+      await app.close();
+      await pool.end();
+      process.exit(0);
+    } catch (err) {
+      app.log.error({ err }, 'Shutdown failed');
+      process.exit(1);
+    }
   });
 }
 

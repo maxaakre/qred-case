@@ -24,6 +24,12 @@ describe('authentication', () => {
     expect(expectContract(res, 'listMyCompanies')).toMatchObject({ status: 401, title: 'Unauthorized' });
   });
 
+  it('accepts the scheme in any letter case, as HTTP allows', async () => {
+    const res = await listCompanies(`bearer ${await ctx.token(randomUUID())}`);
+
+    expect(res.statusCode).toBe(200);
+  });
+
   it('rejects a token signed with another secret', async () => {
     const res = await listCompanies(`Bearer ${await ctx.tokenSignedWith('not-the-secret-not-the-secret-123', 'u')}`);
 

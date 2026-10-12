@@ -1,0 +1,6 @@
+{
+  // Production build: app and scripts, no tests. The spec and migrations are read
+  // at runtime, so the build copies them next to the compiled code.
+  "extends": "./tsconfig.json",
+  "include": ["src", "scripts"]
+}
