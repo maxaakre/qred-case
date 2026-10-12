@@ -5,6 +5,9 @@ x-app-env: &app-env
   # Read from your .env when it exists, so `npm run token` signs tokens this API accepts.
   # The default is for local demos only.
   JWT_SECRET: ${JWT_SECRET:-local-demo-secret-do-not-use-in-production}
+  # The image runs with NODE_ENV=production, where these have no defaults.
+  JWT_ISSUER: ${JWT_ISSUER:-card-overview-dev}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-card-overview-api}
   SUPPORT_PHONE: ${SUPPORT_PHONE:-+46 8 000 00 00}
   SUPPORT_EMAIL: ${SUPPORT_EMAIL:-support@example.com}
   SUPPORT_URL: ${SUPPORT_URL:-https://example.com/support}
@@ -27,8 +30,9 @@ services:
     volumes:
       # Creates the API's login on first start (db/init/01-app-login.sql).
       - ./db/init:/docker-entrypoint-initdb.d:ro
+    # Only this machine: the demo passwords are public, so nobody else on the network may connect.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d cards"]
       interval: 2s
@@ -40,7 +44,10 @@ services:
     build: .
     image: card-overview-api:local
     command: ["sh", "-c", "node dist/scripts/migrate.js && node dist/scripts/seed.js"]
-    environment: *app-env
+    environment:
+      <<: *app-env
+      # The seed deletes all data, so the production image refuses to run it without this.
+      ALLOW_DEMO_SEED: "true"
     <<: *hardened
     depends_on:
       db:
@@ -55,9 +62,11 @@ services:
       DATABASE_URL: postgres://card_api:card_api@db:5432/cards
       # POST /demo/token and prefilled ids on /docs (ADR 0009). Never in production.
       DEMO_MODE: "true"
+      # Off by default in production (NODE_ENV=production in the image).
+      DOCS_ENABLED: "true"
     <<: *hardened
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       setup:
         condition: service_completed_successfully
@@ -77,4 +86,4 @@ services:
     volumes:
       - ./openapi:/spec:ro
     ports:
-      - "4010:4010"
+      - "127.0.0.1:4010:4010"
