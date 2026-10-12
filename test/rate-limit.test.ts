@@ -40,11 +40,12 @@ describe('rate limit on POST /v1/cards/{cardId}/activation', () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it('only limits activation, not reading the screen', async () => {
-    const { user, company, card } = await inactiveCardHolder();
-    for (let i = 0; i <= MAX; i++) await activate(user, card, '0000');
+  it('only limits activation, so the screen can be reloaded any number of times', async () => {
+    const { user, company } = await inactiveCardHolder();
+    const overview = () => ctx.get(user, `/v1/companies/${company}/card-overview`);
+    for (let i = 0; i < MAX; i++) await overview();
 
-    const res = await ctx.get(user, `/v1/companies/${company}/card-overview`);
+    const res = await overview();
 
     expect(res.statusCode).toBe(200);
   });

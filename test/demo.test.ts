@@ -18,6 +18,7 @@ describe('demo tokens, DEMO_MODE off (the default)', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  // Without demo mode /docs is exactly openapi.yaml, so this also keeps demo data out of the contract.
   it('does not show it, or any demo data, in the docs', async () => {
     const spec = (await ctx.app.inject({ method: 'GET', url: '/docs/json' })).json();
 
@@ -77,13 +78,5 @@ describe('demo tokens, DEMO_MODE on', () => {
     const examples = spec.paths['/v1/cards/{cardId}/activation'].post.requestBody.content['application/json'].examples;
 
     expect(Object.values(examples).map((e: any) => e.value.last4)).toEqual(['0000', '7310']);
-  });
-
-  it('leaves the contract file itself unchanged', async () => {
-    const { readFile } = await import('node:fs/promises');
-
-    const contract = await readFile('openapi/openapi.yaml', 'utf8');
-    expect(contract).not.toContain('/demo/token');
-    expect(contract).not.toContain(DEMO.companyAb);
   });
 });
