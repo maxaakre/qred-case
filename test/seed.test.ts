@@ -13,11 +13,7 @@ describe('demo seed', () => {
   afterAll(() => ctx.close());
 
   it('reproduces the app view for Anna', async () => {
-    const res = await ctx.app.inject({
-      method: 'GET',
-      url: `/v1/companies/${DEMO.companyAb}/card-overview`,
-      headers: { authorization: `Bearer ${await ctx.token(DEMO.anna)}` },
-    });
+    const res = await ctx.get(DEMO.anna, `/v1/companies/${DEMO.companyAb}/card-overview`);
 
     const body = expectContract(res, 'getCardOverview');
     expect(body.company.name).toBe('Company AB');
@@ -28,11 +24,7 @@ describe('demo seed', () => {
   });
 
   it('gives Erik an inactive card to activate', async () => {
-    const res = await ctx.app.inject({
-      method: 'GET',
-      url: `/v1/companies/${DEMO.companyAb}/card-overview`,
-      headers: { authorization: `Bearer ${await ctx.token(DEMO.erik)}` },
-    });
+    const res = await ctx.get(DEMO.erik, `/v1/companies/${DEMO.companyAb}/card-overview`);
 
     const body = expectContract(res, 'getCardOverview');
     expect(body.card).toMatchObject({ status: 'INACTIVE', last4: null });

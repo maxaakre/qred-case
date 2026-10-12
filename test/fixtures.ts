@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
+import { truncateAll } from '../scripts/seed.js';
+import type { CardStatus, TransactionRow } from '../src/repositories/cards.js';
+import type { Role } from '../src/repositories/companies.js';
 
 /** Inserts test data with sensible defaults. Every helper returns the new row's id. */
 export function fixtures(pool: pg.Pool) {
@@ -7,9 +10,7 @@ export function fixtures(pool: pg.Pool) {
   const next = () => ++seq;
 
   return {
-    async reset() {
-      await pool.query('TRUNCATE users, companies, company_members, cards, transactions, invoices CASCADE');
-    },
+    reset: () => truncateAll(pool),
 
     async user(name = `User ${next()}`) {
       const id = randomUUID();
@@ -23,16 +24,24 @@ export function fixtures(pool: pg.Pool) {
       return id;
     },
 
-    async member(userId: string, companyId: string, role: 'OWNER' | 'ADMIN' | 'EMPLOYEE' = 'OWNER') {
+    async member(userId: string, companyId: string, role: Role = 'OWNER') {
       await pool.query('INSERT INTO company_members (user_id, company_id, role) VALUES ($1, $2, $3)', [
         userId, companyId, role,
       ]);
     },
 
+    /** A new user who is a member of a new company with the given role. */
+    async memberOf(role: Role = 'OWNER', companyName = 'Company AB') {
+      const user = await this.user();
+      const company = await this.company(companyName);
+      await this.member(user, company, role);
+      return { user, company };
+    },
+
     async card(opts: {
       holder: string;
       company: string;
-      status?: 'INACTIVE' | 'ACTIVE' | 'FROZEN' | 'CLOSED';
+      status?: CardStatus;
       last4?: string;
       creditLimit?: number;
       spendLimit?: number;
@@ -59,7 +68,7 @@ export function fixtures(pool: pg.Pool) {
     async transaction(cardId: string, opts: {
       amount: number;
       occurredAt: string;
-      status?: 'PENDING' | 'SETTLED' | 'DECLINED';
+      status?: TransactionRow['status'];
       merchant?: string;
       currency?: string;
     }) {

@@ -11,20 +11,9 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
   beforeEach(() => ctx.fx.reset());
   afterAll(() => ctx.close());
 
-  const getOverview = async (userId: string, companyId: string) =>
-    ctx.app.inject({
-      method: 'GET',
-      url: `/v1/companies/${companyId}/card-overview`,
-      headers: { authorization: `Bearer ${await ctx.token(userId)}` },
-    });
-
-  /** A user who is a member of "Company AB" with the given role. */
-  async function member(role: 'OWNER' | 'ADMIN' | 'EMPLOYEE' = 'EMPLOYEE') {
-    const user = await ctx.fx.user();
-    const company = await ctx.fx.company('Company AB');
-    await ctx.fx.member(user, company, role);
-    return { user, company };
-  }
+  const getOverview = (userId: string, companyId: string) =>
+    ctx.get(userId, `/v1/companies/${companyId}/card-overview`);
+  const member = (role: 'OWNER' | 'ADMIN' | 'EMPLOYEE' = 'EMPLOYEE') => ctx.fx.memberOf(role);
 
   describe('access', () => {
     it('returns 404 for a company the user is not a member of', async () => {
@@ -54,9 +43,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
 
   describe('member without a card', () => {
     it('returns an empty state instead of an error', async () => {
-      const user = await ctx.fx.user();
-      const company = await ctx.fx.company('Company AB');
-      await ctx.fx.member(user, company, 'EMPLOYEE');
+      const { user, company } = await member();
 
       const res = await getOverview(user, company);
 
@@ -75,9 +62,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
 
   describe('card', () => {
     it("shows the user's active card with spend and an empty transaction list", async () => {
-      const user = await ctx.fx.user();
-      const company = await ctx.fx.company('Company AB');
-      await ctx.fx.member(user, company, 'EMPLOYEE');
+      const { user, company } = await member();
       const card = await ctx.fx.card({ holder: user, company, status: 'ACTIVE', last4: '4821', spendLimit: 1_000_000 });
 
       const res = await getOverview(user, company);

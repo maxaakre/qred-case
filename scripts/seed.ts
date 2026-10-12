@@ -1,7 +1,7 @@
 import pg from 'pg';
 import { spendPeriodFor } from '../src/domain/spend-period.js';
 import { loadConfig } from '../src/config.js';
-import { withTransaction } from '../src/db.js';
+import { type Queryable, withTransaction } from '../src/db.js';
 import { isMain } from './is-main.js';
 
 /**
@@ -21,10 +21,15 @@ export const DEMO = {
 
 const MERCHANTS = ['Clas Ohlson', 'Circle K', 'Bauhaus', 'SJ', 'Webhallen', 'Espresso House', 'Biltema', 'Postnord'];
 
+/** Empties every table. Shared by the seed and the test fixtures. */
+export async function truncateAll(db: Queryable) {
+  await db.query('TRUNCATE users, companies, company_members, cards, transactions, invoices CASCADE');
+}
+
 export async function seed(pool: pg.Pool, now = new Date()) {
   const period = spendPeriodFor(now);
   await withTransaction(pool, async (client) => {
-    await client.query('TRUNCATE users, companies, company_members, cards, transactions, invoices CASCADE');
+    await truncateAll(client);
 
     await client.query(
       `INSERT INTO users (id, email, name) VALUES

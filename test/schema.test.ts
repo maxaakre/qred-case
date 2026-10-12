@@ -11,8 +11,7 @@ describe('database constraints', () => {
   afterAll(() => ctx.close());
 
   it("refuses a transaction in another currency than the card's", async () => {
-    const user = await ctx.fx.user();
-    const company = await ctx.fx.company();
+    const { user, company } = await ctx.fx.memberOf();
     const card = await ctx.fx.card({ holder: user, company });
 
     await expect(

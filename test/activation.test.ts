@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import type { CardStatus } from '../src/repositories/cards.js';
 import { createTestContext, type TestContext } from './context.js';
 import { expectContract } from './contract.js';
 
@@ -11,28 +12,13 @@ describe('POST /v1/cards/{cardId}/activation', () => {
   beforeEach(() => ctx.fx.reset());
   afterAll(() => ctx.close());
 
-  const activate = async (userId: string, cardId: string, payload: unknown) =>
-    ctx.app.inject({
-      method: 'POST',
-      url: `/v1/cards/${cardId}/activation`,
-      headers: { authorization: `Bearer ${await ctx.token(userId)}` },
-      payload: payload as object,
-    });
-
+  const activate = (userId: string, cardId: string, payload: object) =>
+    ctx.post(userId, `/v1/cards/${cardId}/activation`, payload);
   const overview = async (userId: string, companyId: string) =>
-    expectContract(
-      await ctx.app.inject({
-        method: 'GET',
-        url: `/v1/companies/${companyId}/card-overview`,
-        headers: { authorization: `Bearer ${await ctx.token(userId)}` },
-      }),
-      'getCardOverview',
-    );
+    expectContract(await ctx.get(userId, `/v1/companies/${companyId}/card-overview`), 'getCardOverview');
 
-  async function holderOf(status: 'INACTIVE' | 'ACTIVE' | 'FROZEN' | 'CLOSED' = 'INACTIVE', failedActivationAttempts = 0) {
-    const user = await ctx.fx.user();
-    const company = await ctx.fx.company();
-    await ctx.fx.member(user, company);
+  async function holderOf(status: CardStatus = 'INACTIVE', failedActivationAttempts = 0) {
+    const { user, company } = await ctx.fx.memberOf();
     const card = await ctx.fx.card({ holder: user, company, status, last4: '4821', failedActivationAttempts });
     return { user, company, card };
   }

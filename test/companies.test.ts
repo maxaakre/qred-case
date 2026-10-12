@@ -10,12 +10,7 @@ describe('GET /v1/me/companies', () => {
   beforeEach(() => ctx.fx.reset());
   afterAll(() => ctx.close());
 
-  const listCompanies = async (userId: string) =>
-    ctx.app.inject({
-      method: 'GET',
-      url: '/v1/me/companies',
-      headers: { authorization: `Bearer ${await ctx.token(userId)}` },
-    });
+  const listCompanies = (userId: string) => ctx.get(userId, '/v1/me/companies');
 
   it("lists only the user's companies, sorted by name", async () => {
     const user = await ctx.fx.user();

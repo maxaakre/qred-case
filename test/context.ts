@@ -1,9 +1,9 @@
-import type { FastifyInstance } from 'fastify';
-import { SignJWT } from 'jose';
+import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import pg from 'pg';
 import { inject } from 'vitest';
 import { buildApp } from '../src/app.js';
 import type { Config } from '../src/config.js';
+import { signDevToken } from '../scripts/dev-token.js';
 import { fixtures, type Fixtures } from './fixtures.js';
 
 export const testConfig: Config = {
@@ -23,25 +23,28 @@ export interface TestContext {
   token(userId: string, opts?: { expiresIn?: string }): Promise<string>;
   tokenSignedWith(secret: string, userId: string): Promise<string>;
   tokenWithoutExpiry(userId: string): Promise<string>;
+  /** GET as the signed-in user. */
+  get(userId: string, url: string): Promise<LightMyRequestResponse>;
+  /** POST a JSON body as the signed-in user. */
+  post(userId: string, url: string, payload: object): Promise<LightMyRequestResponse>;
   close(): Promise<void>;
-}
-
-function sign(secret: string, userId: string, expiresIn = '15m') {
-  return new SignJWT({}).setProtectedHeader({ alg: 'HS256' }).setSubject(userId).setIssuedAt()
-    .setExpirationTime(expiresIn).sign(new TextEncoder().encode(secret));
 }
 
 export async function createTestContext(): Promise<TestContext> {
   const pool = new pg.Pool({ connectionString: testConfig.databaseUrl });
   const app = await buildApp({ pool, config: testConfig, now: () => NOW });
+  const bearer = async (userId: string) => ({
+    authorization: `Bearer ${await signDevToken(testConfig.jwtSecret, userId)}`,
+  });
   return {
     app,
     pool,
     fx: fixtures(pool),
-    token: (userId, opts) => sign(testConfig.jwtSecret, userId, opts?.expiresIn),
-    tokenSignedWith: (secret, userId) => sign(secret, userId),
-    tokenWithoutExpiry: (userId) =>
-      new SignJWT({}).setProtectedHeader({ alg: 'HS256' }).setSubject(userId).sign(new TextEncoder().encode(testConfig.jwtSecret)),
+    token: (userId, opts) => signDevToken(testConfig.jwtSecret, userId, opts?.expiresIn),
+    tokenSignedWith: (secret, userId) => signDevToken(secret, userId),
+    tokenWithoutExpiry: (userId) => signDevToken(testConfig.jwtSecret, userId, null),
+    get: async (userId, url) => app.inject({ method: 'GET', url, headers: await bearer(userId) }),
+    post: async (userId, url, payload) => app.inject({ method: 'POST', url, headers: await bearer(userId), payload }),
     async close() {
       await app.close();
       await pool.end();

@@ -11,17 +11,10 @@ describe('GET /v1/cards/{cardId}/transactions', () => {
   beforeEach(() => ctx.fx.reset());
   afterAll(() => ctx.close());
 
-  const list = async (userId: string, cardId: string, query = '') =>
-    ctx.app.inject({
-      method: 'GET',
-      url: `/v1/cards/${cardId}/transactions${query}`,
-      headers: { authorization: `Bearer ${await ctx.token(userId)}` },
-    });
+  const list = (userId: string, cardId: string, query = '') => ctx.get(userId, `/v1/cards/${cardId}/transactions${query}`);
 
   async function cardWithTransactions(count: number) {
-    const user = await ctx.fx.user();
-    const company = await ctx.fx.company();
-    await ctx.fx.member(user, company);
+    const { user, company } = await ctx.fx.memberOf();
     const card = await ctx.fx.card({ holder: user, company });
     for (let i = 1; i <= count; i++) {
       await ctx.fx.transaction(card, {
