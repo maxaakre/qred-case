@@ -99,7 +99,9 @@ info:
 
     The token says who the user is. What they may see is checked by the backend
     on every request. In production the token comes from the app's sign-in
-    (BankID). This case uses locally signed demo tokens.
+    (BankID): a short-lived access token (5-15 minutes), renewed with a refresh
+    token. The API refuses any token issued more than an hour ago, whatever its
+    expiry says. This case uses locally signed demo tokens that live one hour.
 
     ## Headers
 

@@ -240,7 +240,7 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 | Threat | Protection |
 |---|---|
 | Reading another customer's data | Access is checked in the database on every request (membership), never trusted from the token or the URL. No access and "does not exist" give the same `404`. `/v1/me/...` has no user id to tamper with. |
-| Forged or stolen tokens | HS256 only (no `alg: none`), and `exp`, `sub`, `iss` and `aud` are required, so a token for another service is refused even with the same key. Tokens are redacted from the logs. |
+| Forged or stolen tokens | HS256 only (no `alg: none`), and `exp`, `iat`, `sub`, `iss` and `aud` are required, so a token for another service is refused even with the same key. A token issued more than an hour ago is refused whatever its expiry says, which limits what a stolen token is worth; demo tokens live one hour. Tokens are redacted from the logs. |
 | Guessing activation digits | 5 wrong attempts lock the card (one atomic `UPDATE`, safe under concurrency), plus a per-user rate limit. |
 | Malformed or oversized input | Every request is validated against the contract: unknown fields are rejected, non-JSON bodies get `415`, bodies over 1 KiB get `413`. Bodies with `__proto__` keys are rejected (prototype pollution). |
 | SQL injection | Every query is parameterized; user input is never put into SQL text. |

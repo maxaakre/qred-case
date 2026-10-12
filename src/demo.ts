@@ -16,7 +16,8 @@ export const DEMO = {
 const DEMO_USERS = { anna: DEMO.anna, erik: DEMO.erik } as const;
 export type DemoUser = keyof typeof DEMO_USERS;
 export const DEMO_USER_NAMES = Object.keys(DEMO_USERS) as DemoUser[];
-const TOKEN_LIFETIME = '12h';
+// Short-lived like a real access token. The docs page fetches a new one when it expires.
+const TOKEN_LIFETIME = '1h';
 
 /** A demo user by name (`anna`) or by user id, or undefined for anyone else. */
 export function resolveDemoUser(nameOrId: string): DemoUser | undefined {
@@ -152,7 +153,15 @@ export const demoDocsUiConfig: FastifySwaggerUiConfigOptions = {
   persistAuthorization: true,
   // When the docs have loaded, sign in as anna, unless a sign-in was kept from before.
   onComplete: function () {
-    if (localStorage.getItem('authorized')) return;
+    // Keep a stored sign-in only while its token is still valid.
+    try {
+      const stored = JSON.parse(localStorage.getItem('authorized') ?? 'null');
+      const token: string | undefined = stored?.bearerAuth?.value;
+      const expiresAt = token ? JSON.parse(atob(token.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/'))).exp : 0;
+      if (expiresAt * 1000 > Date.now() + 60_000) return;
+    } catch {
+      // Unreadable: sign in again.
+    }
     fetch('/demo/token', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

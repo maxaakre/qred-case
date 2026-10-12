@@ -26,8 +26,10 @@ export function createSecurityHandlers(jwt: JwtSettings) {
           // A token from another issuer, or meant for another service, is not ours.
           issuer: jwt.issuer,
           audience: jwt.audience,
+          // A long-lived token is refused even if its `exp` is far away.
+          maxTokenAge: jwt.maxAgeSeconds,
           // jose only checks `exp` when present; a token without one would never expire.
-          requiredClaims: ['exp', 'sub'],
+          requiredClaims: ['exp', 'iat', 'sub'],
         });
         if (!payload.sub || !isUuid(payload.sub)) throw new Error('Token subject is not a user id');
         req.userId = payload.sub;

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { SignJWT } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestContext, type TestContext } from './context.js';
+import { createTestContext, testConfig, type TestContext } from './context.js';
 import { expectContract } from './contract.js';
 
 describe('authentication', () => {
@@ -53,6 +54,22 @@ describe('authentication', () => {
 
     expect(res.statusCode).toBe(401);
     expectContract(res, 'listMyCompanies');
+  });
+
+  it('rejects a token issued more than an hour ago, even if it has not expired', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const longLived = await new SignJWT({})
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(randomUUID())
+      .setIssuer(testConfig.jwt.issuer)
+      .setAudience(testConfig.jwt.audience)
+      .setIssuedAt(now - 2 * 3600)
+      .setExpirationTime(now + 3600)
+      .sign(new TextEncoder().encode(testConfig.jwt.secret));
+
+    const res = await listCompanies(`Bearer ${longLived}`);
+
+    expect(res.statusCode).toBe(401);
   });
 
   it('rejects a token without an expiry, so no token is valid forever', async () => {

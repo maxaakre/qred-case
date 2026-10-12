@@ -10,6 +10,9 @@ const schema = z.object({
   // even when it is signed with the same key.
   JWT_ISSUER: z.string().min(1).default('card-overview-dev'),
   JWT_AUDIENCE: z.string().min(1).default('card-overview-api'),
+  // Oldest token accepted, counted from when it was issued, whatever its expiry says.
+  // Access tokens from the sign-in provider live 5-15 minutes; this is the safety net.
+  JWT_MAX_AGE_SECONDS: z.coerce.number().int().positive().default(3600),
   SUPPORT_PHONE: z.string().min(1),
   SUPPORT_EMAIL: z.string().email(),
   SUPPORT_URL: z.string().url(),
@@ -26,6 +29,7 @@ export interface JwtSettings {
   secret: string;
   issuer: string;
   audience: string;
+  maxAgeSeconds: number;
 }
 
 export interface Config {
@@ -51,7 +55,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: e.LOG_LEVEL,
     port: e.PORT,
     databaseUrl: e.DATABASE_URL,
-    jwt: { secret: e.JWT_SECRET, issuer: e.JWT_ISSUER, audience: e.JWT_AUDIENCE },
+    jwt: { secret: e.JWT_SECRET, issuer: e.JWT_ISSUER, audience: e.JWT_AUDIENCE, maxAgeSeconds: e.JWT_MAX_AGE_SECONDS },
     support: { phone: e.SUPPORT_PHONE, email: e.SUPPORT_EMAIL, url: e.SUPPORT_URL },
     activationRateLimit: { max: e.ACTIVATION_RATE_LIMIT_MAX, windowSeconds: e.ACTIVATION_RATE_LIMIT_WINDOW_SECONDS },
     demoMode: e.DEMO_MODE === 'true',

@@ -14,7 +14,7 @@ export const testConfig: Config = {
   port: 0,
   // The app connects with only its runtime privileges (see global-setup.ts).
   databaseUrl: inject('appDatabaseUrl'),
-  jwt: { secret: 'test-secret-test-secret-test-secret', issuer: 'test-issuer', audience: 'test-audience' },
+  jwt: { secret: 'test-secret-test-secret-test-secret', issuer: 'test-issuer', audience: 'test-audience', maxAgeSeconds: 3600 },
   support: { phone: '+46 8 000 00 00', email: 'support@example.com', url: 'https://example.com/support' },
   // High enough that only the rate-limit tests hit it.
   activationRateLimit: { max: 1000, windowSeconds: 900 },
