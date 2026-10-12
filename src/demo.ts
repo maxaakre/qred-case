@@ -16,7 +16,8 @@ export const DEMO = {
 const DEMO_USERS = { anna: DEMO.anna, erik: DEMO.erik } as const;
 export type DemoUser = keyof typeof DEMO_USERS;
 export const DEMO_USER_NAMES = Object.keys(DEMO_USERS) as DemoUser[];
-// Short-lived like a real access token. The docs page fetches a new one when it expires.
+// Short-lived like a real access token. The docs page signs in again when it is loaded after
+// the token expired; a page left open longer gets 401 until it is reloaded.
 const TOKEN_LIFETIME = '1h';
 
 /** A demo user by name (`anna`) or by user id, or undefined for anyone else. */

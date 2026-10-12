@@ -26,6 +26,9 @@ const schema = z.object({
   DB_POOL_MAX: z.coerce.number().int().positive().default(10),
   // Adds POST /demo/token for the seeded users. Only for local demos (docker-compose.yml).
   DEMO_MODE: z.enum(['true', 'false']).default('false'),
+  // The image always runs with NODE_ENV=production, also in the local Compose demo. Demo mode
+  // there needs this second switch too, so one stray DEMO_MODE cannot open it in a real deploy.
+  ALLOW_DEMO_MODE: z.enum(['true', 'false']).default('false'),
   // Swagger UI at /docs. On by default only outside production (DEV_DEFAULTS).
   DOCS_ENABLED: z.enum(['true', 'false']).optional(),
   NODE_ENV: z.string().optional(),
@@ -68,8 +71,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const e = parsed.data;
   const isProduction = e.NODE_ENV === 'production';
   if (isProduction) {
-    const missing = (['JWT_ISSUER', 'JWT_AUDIENCE'] as const).filter((key) => e[key] === undefined);
-    if (missing.length) throw new Error(`Invalid configuration:\n  ${missing.map((k) => `${k}: required in production`).join('\n  ')}`);
+    const problems = (['JWT_ISSUER', 'JWT_AUDIENCE'] as const)
+      .filter((key) => e[key] === undefined)
+      .map((key) => `${key}: required in production`);
+    if (e.DEMO_MODE === 'true' && e.ALLOW_DEMO_MODE !== 'true') {
+      problems.push('DEMO_MODE: refused in production unless ALLOW_DEMO_MODE=true (local Compose demo only)');
+    }
+    if (problems.length) throw new Error(`Invalid configuration:\n  ${problems.join('\n  ')}`);
   }
   const issuer = e.JWT_ISSUER ?? DEV_DEFAULTS.JWT_ISSUER;
   const audience = e.JWT_AUDIENCE ?? DEV_DEFAULTS.JWT_AUDIENCE;
