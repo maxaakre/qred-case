@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DEMO, seed } from '../scripts/seed.js';
+import { DEMO } from '../src/demo.js';
+import { seed } from '../scripts/seed.js';
 import { createTestContext, NOW, type TestContext } from './context.js';
 import { expectContract } from './contract.js';
 

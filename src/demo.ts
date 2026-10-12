@@ -1,0 +1,107 @@
+import type { FastifyInstance } from 'fastify';
+import { signDevToken } from './dev-token.js';
+
+/** The seeded demo users and their companies and cards (see scripts/seed.ts). */
+export const DEMO = {
+  anna: '01900000-0000-7000-8000-000000000001', // OWNER of Company AB, active card
+  erik: '01900000-0000-7000-8000-000000000002', // EMPLOYEE of Company AB, inactive card
+  companyAb: '01900000-0000-7000-8000-0000000000c1',
+  byggNorr: '01900000-0000-7000-8000-0000000000c2',
+  annaCard: '01900000-0000-7000-8000-0000000000a1',
+  erikCard: '01900000-0000-7000-8000-0000000000a2',
+} as const;
+
+const DEMO_USERS = { anna: DEMO.anna, erik: DEMO.erik } as const;
+type DemoUser = keyof typeof DEMO_USERS;
+const TOKEN_LIFETIME = '12h';
+
+const requestSchema = {
+  type: 'object',
+  required: ['user'],
+  additionalProperties: false,
+  properties: {
+    user: {
+      type: 'string',
+      enum: Object.keys(DEMO_USERS),
+      description: 'anna: owner, active card. erik: employee, inactive card (last4 7310).',
+    },
+  },
+} as const;
+
+const responseSchema = {
+  type: 'object',
+  required: ['token', 'userId', 'expiresIn'],
+  properties: {
+    token: { type: 'string', description: 'Paste into Authorize' },
+    userId: { type: 'string', format: 'uuid' },
+    expiresIn: { type: 'string', example: TOKEN_LIFETIME },
+  },
+} as const;
+
+/**
+ * POST /demo/token: a token for a seeded user, so the docs page can be tried without a
+ * terminal. Only registered when DEMO_MODE=true, and not part of the contract
+ * (openapi.yaml); it only appears on /docs, via `withDemoDocs` (ADR 0009).
+ *
+ * Defence in depth: it only signs tokens for the demo user ids. Access comes from
+ * membership in the database (ADR 0006), so against a real database without the seed
+ * these tokens can see nothing.
+ */
+export function registerDemoRoutes(app: FastifyInstance, jwtSecret: string) {
+  app.log.warn('DEMO_MODE is on: anyone can get a token at POST /demo/token. Never enable it in production.');
+  app.post<{ Body: { user: DemoUser } }>(
+    '/demo/token',
+    { schema: { body: requestSchema, response: { 200: responseSchema } } },
+    async (req) => {
+      const userId = DEMO_USERS[req.body.user];
+      return { token: await signDevToken(jwtSecret, userId, TOKEN_LIFETIME), userId, expiresIn: TOKEN_LIFETIME };
+    },
+  );
+}
+
+/**
+ * The spec shown on /docs in demo mode: the contract plus the demo token endpoint
+ * (listed first), the demo ids prefilled, and ready-made activation bodies. The
+ * contract file never contains demo data; everything demo-only lives here.
+ */
+export function withDemoDocs(spec: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  // The docs walk an untyped spec object; the shapes used here are fixed by openapi.yaml.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const docs: any = structuredClone(spec);
+
+  docs.tags = [{ name: 'Demo', description: 'Demo mode only. Get a token, click Authorize and paste it.' }, ...(docs.tags ?? [])];
+  docs.paths = { '/demo/token': { post: demoTokenOperation }, ...docs.paths };
+
+  docs.components.parameters.CompanyId.example = DEMO.companyAb;
+  docs.components.parameters.CardId.example = DEMO.annaCard;
+
+  const activation = docs.paths['/v1/cards/{cardId}/activation'].post;
+  activation.parameters = [
+    { ...docs.components.parameters.CardId, example: DEMO.erikCard, description: "Erik's inactive card (demo)" },
+  ];
+  activation.requestBody.content['application/json'].examples = {
+    wrongDigits: { summary: 'Wrong digits: 422 and one attempt fewer', value: { last4: '0000' } },
+    eriksCard: { summary: "Erik's card: 200, the card becomes ACTIVE (sign in as erik)", value: { last4: '7310' } },
+  };
+  return docs;
+}
+
+const demoTokenOperation = {
+  tags: ['Demo'],
+  summary: 'Get a token for a demo user',
+  description: 'Copy `token`, click **Authorize** and paste it. Use `erik` to try activation.',
+  operationId: 'getDemoToken',
+  // No lock: this is how you get a token in the first place.
+  security: [],
+  requestBody: {
+    required: true,
+    content: { 'application/json': { schema: requestSchema, example: { user: 'anna' } } },
+  },
+  responses: {
+    '200': { description: 'Token for the user', content: { 'application/json': { schema: responseSchema } } },
+    '400': {
+      description: 'Unknown user',
+      content: { 'application/problem+json': { schema: { $ref: '#/components/schemas/Problem' } } },
+    },
+  },
+};

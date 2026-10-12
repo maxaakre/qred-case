@@ -2,22 +2,8 @@ import pg from 'pg';
 import { spendPeriodFor } from '../src/domain/spend-period.js';
 import { loadConfig } from '../src/config.js';
 import { type Queryable, withTransaction } from '../src/db.js';
+import { DEMO } from '../src/demo.js';
 import { isMain } from './is-main.js';
-
-/**
- * Demo data that reproduces the app view: "Company AB", 5 400 / 10 000 kr spent this
- * month, 57 transactions ("54 more items"), an invoice due, and a second user with an
- * inactive card to demo activation. Dates are relative to now, so the demo works any day.
- * Re-running replaces all data.
- */
-export const DEMO = {
-  anna: '01900000-0000-7000-8000-000000000001', // OWNER of Company AB, active card
-  erik: '01900000-0000-7000-8000-000000000002', // EMPLOYEE of Company AB, inactive card
-  companyAb: '01900000-0000-7000-8000-0000000000c1',
-  byggNorr: '01900000-0000-7000-8000-0000000000c2',
-  annaCard: '01900000-0000-7000-8000-0000000000a1',
-  erikCard: '01900000-0000-7000-8000-0000000000a2',
-} as const;
 
 const MERCHANTS = ['Clas Ohlson', 'Circle K', 'Bauhaus', 'SJ', 'Webhallen', 'Espresso House', 'Biltema', 'Postnord'];
 
@@ -26,6 +12,12 @@ export async function truncateAll(db: Queryable) {
   await db.query('TRUNCATE users, companies, company_members, cards, transactions, invoices CASCADE');
 }
 
+/**
+ * Demo data that reproduces the app view: "Company AB", 5 400 / 10 000 kr spent this
+ * month, 57 transactions ("54 more items"), an invoice due, and a second user with an
+ * inactive card to demo activation. Dates are relative to now, so the demo works any day.
+ * Re-running replaces all data.
+ */
 export async function seed(pool: pg.Pool, now = new Date()) {
   const period = spendPeriodFor(now);
   await withTransaction(pool, async (client) => {

@@ -1,6 +1,6 @@
 import { loadConfig } from '../src/config.js';
-import { signDevToken } from './dev-token.js';
-import { DEMO } from './seed.js';
+import { DEMO } from '../src/demo.js';
+import { signDevToken } from '../src/dev-token.js';
 
 /** Prints a demo JWT for a seeded user: npm run token -- anna | erik */
 const name = process.argv[2] ?? 'anna';

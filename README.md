@@ -53,11 +53,11 @@ npm run token -- anna
 
 **Production build:** the `Dockerfile` builds a small image with the compiled code and production dependencies only, running as a non-root user. Without Docker: `npm run build`, then `npm run db:migrate:prod` and `npm run start:prod`. Two instances migrating at once are safe: they take turns on a database lock.
 
-**API docs:** http://localhost:3000/docs (Swagger UI). Click **Authorize**, paste a token for `anna` (or `erik` for activation), and try the calls in the browser; the server menu also switches to the Prism mock. The page shows `openapi.yaml` as written (static mode), so the docs cannot drift from the contract.
+**API docs:** http://localhost:3000/docs (Swagger UI), written for frontend: how to build the screen, what to show for every error, formats, and a named example for every state of the screen. With `docker compose up` it runs in demo mode ([ADR 0009](docs/adr/0009-demo-tokens-outside-the-contract.md)): call **Demo → POST /demo/token**, click **Authorize**, paste the token, and every call is ready to **Execute** with the demo ids filled in. Use `erik` for activation. The contract file itself contains no demo data, and demo mode is off unless `DEMO_MODE=true`.
 
 **Logs:** `docker compose logs -f api` and `npm start` print one JSON object per line, as in production; `npm run dev` prints readable, coloured logs. Set the level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
 
-**Frontend without the backend:** `docker compose up` already serves the contract with Prism on `http://localhost:4010`; `npm run mock` does the same without Docker.
+**Frontend without the backend:** `docker compose up` already serves the contract with Prism on `http://localhost:4010`; `npm run mock` does the same without Docker. Pick a state with a header: `Prefer: example=inactiveCard` (or `activeCard`, `activationLocked`, `frozenCard`, `noCard`), or an error with `Prefer: code=423`.
 
 ## From the screen to the API
 

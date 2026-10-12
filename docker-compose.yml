@@ -38,7 +38,10 @@ services:
   api:
     build: .
     image: card-overview-api:local
-    environment: *app-env
+    environment:
+      <<: *app-env
+      # POST /demo/token and prefilled ids on /docs (ADR 0009). Never in production.
+      DEMO_MODE: "true"
     ports:
       - "3000:3000"
     depends_on:

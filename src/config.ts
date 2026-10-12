@@ -12,6 +12,8 @@ const schema = z.object({
   // Activation attempts per user per window, across all their cards.
   ACTIVATION_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   ACTIVATION_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),
+  // Adds POST /demo/token for the seeded users. Only for local demos (docker-compose.yml).
+  DEMO_MODE: z.enum(['true', 'false']).default('false'),
 });
 
 export interface Config {
@@ -21,6 +23,7 @@ export interface Config {
   jwtSecret: string;
   support: { phone: string; email: string; url: string };
   activationRateLimit: { max: number; windowSeconds: number };
+  demoMode: boolean;
 }
 
 /** Reads and validates all configuration once at startup. Fails fast on anything missing. */
@@ -38,5 +41,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     jwtSecret: e.JWT_SECRET,
     support: { phone: e.SUPPORT_PHONE, email: e.SUPPORT_EMAIL, url: e.SUPPORT_URL },
     activationRateLimit: { max: e.ACTIVATION_RATE_LIMIT_MAX, windowSeconds: e.ACTIVATION_RATE_LIMIT_WINDOW_SECONDS },
+    demoMode: e.DEMO_MODE === 'true',
   };
 }

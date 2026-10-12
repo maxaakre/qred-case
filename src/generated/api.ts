@@ -11,7 +11,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Liveness and database readiness */
+        /**
+         * Liveness and database readiness
+         * @description For load balancers and monitoring. The app does not need it.
+         */
         get: operations["getHealth"];
         put?: never;
         post?: never;
@@ -28,7 +31,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Companies the user belongs to (the company dropdown) */
+        /**
+         * Companies the user belongs to (the company dropdown)
+         * @description Sorted by name. Never paginated: a user belongs to a handful of
+         *     companies. An empty `items` means the user belongs to no company.
+         */
         get: operations["listMyCompanies"];
         put?: never;
         post?: never;
@@ -47,20 +54,20 @@ export interface paths {
         };
         /**
          * Everything the card overview screen needs, in one call
-         * @description Screen-shaped (Backend-for-Frontend) endpoint. Returns the signed-in
-         *     user's card in the selected company with spend, latest transactions,
-         *     the next invoice due and which actions are allowed.
+         * @description Screen-shaped (Backend-for-Frontend) endpoint: the signed-in user's
+         *     card in the selected company, with spend, the latest transactions, the
+         *     next invoice due, which actions are allowed, and support contacts.
          *
-         *     Card selection: the user's most recently created card in the company
-         *     that is not `CLOSED`. `FROZEN` cards are shown so the user understands
-         *     why the card does not work.
+         *     - **Which card:** the user's most recently created card in the company
+         *       that is not `CLOSED`. `FROZEN` cards are shown so the user understands
+         *       why the card does not work.
+         *     - **No card:** if the user is a member but has no such card, `card`,
+         *       `spend` and `latestTransactions` are `null`: show an empty state.
+         *     - **Consistent numbers:** everything is read from one database
+         *       snapshot, so `spend`, `latestTransactions` and `totalCount` always
+         *       agree with each other.
          *
-         *     If the user is a member of the company but has no such card, `card`,
-         *     `spend` and `latestTransactions` are `null`, so the app can show an
-         *     empty state instead of an error.
-         *
-         *     All numbers are read from one database snapshot, so `spend`,
-         *     `latestTransactions` and `totalCount` always agree with each other.
+         *     The examples show every state the screen can be in.
          */
         get: operations["getCardOverview"];
         put?: never;
@@ -80,8 +87,18 @@ export interface paths {
         };
         /**
          * Paginated transactions for a card ("54 more items" view)
-         * @description Newest first. Cursor-based pagination, so new transactions arriving
-         *     while the user scrolls never cause duplicates or skipped rows.
+         * @description All transactions on the card, newest first, including the 3 shown on
+         *     the overview. Declined transactions are listed too (style them as
+         *     declined); they do not count towards spend.
+         *
+         *     **Paging:** call without `cursor` for the first page. While
+         *     `nextCursor` is not `null`, pass it as `cursor` to get the next page.
+         *     New transactions that arrive while the user scrolls never cause
+         *     duplicates or skipped rows; they appear when the list is reloaded from
+         *     the first page. If a cursor is rejected (`400`), reload from the first
+         *     page.
+         *
+         *     `cardId` comes from `card.id` in the overview.
          */
         get: operations["listCardTransactions"];
         put?: never;
@@ -104,15 +121,19 @@ export interface paths {
         /**
          * Activate the card ("Activate card" button)
          * @description The user proves they have the physical card by entering its last 4
-         *     digits (they are hidden in the app while the card is `INACTIVE`).
+         *     digits. The app does not know them: `last4` is `null` while the card is
+         *     `INACTIVE`.
          *
-         *     - Idempotent: an already `ACTIVE` card with the right digits returns
+         *     - **Idempotent:** an already `ACTIVE` card with the right digits returns
          *       `200`, so a double tap or a network retry is safe.
-         *     - Only the card holder can activate. Other users get `404`.
-         *     - Wrong digits return `422` with `attemptsRemaining`.
-         *     - After 5 wrong attempts activation is locked (`423`) until support
-         *       unlocks it.
-         *     - Rate limited per user across all cards (`429` with `Retry-After`).
+         *     - **Only the card holder** can activate. Other users get `404`.
+         *     - **Wrong digits** return `422` with `attemptsRemaining`.
+         *     - **After 5 wrong attempts** activation is locked (`423`) until support
+         *       unlocks it. The overview then shows `activationBlockedReason: LOCKED`.
+         *     - **Rate limited** per user across all cards: `429` with `Retry-After`.
+         *
+         *     After `200`, call the overview again: the card shows its digits and
+         *     the button disappears.
          */
         post: operations["activateCard"];
         delete?: never;
@@ -125,13 +146,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description An exact amount. Format on the device, never do arithmetic on floats. */
         Money: {
             /**
-             * @description Amount in minor units (öre). 540000 = 5 400,00 kr
+             * @description Amount in the currency's minor unit (öre for SEK). 540000 = 5 400,00 kr
              * @example 540000
              */
             minor: number;
-            /** @example SEK */
+            /**
+             * @description ISO 4217 code
+             * @example SEK
+             */
             currency: string;
         };
         CompanySummary: {
@@ -140,180 +165,303 @@ export interface components {
             /** @example Company AB */
             name: string;
         };
-        /** @enum {string} */
+        /**
+         * @description - `INACTIVE`: issued but not activated yet; it cannot be used. Offer
+         *       "Activate card" when `actions.canActivateCard` is true.
+         *     - `ACTIVE`: in use.
+         *     - `FROZEN`: temporarily blocked by Qred; purchases are declined. Explain
+         *       this and point to support.
+         *     - `CLOSED`: no longer usable. Never returned by the overview; only seen
+         *       when a closed card's transactions are opened.
+         * @enum {string}
+         */
         CardStatus: "INACTIVE" | "ACTIVE" | "FROZEN" | "CLOSED";
         Card: {
             /** Format: uuid */
             id: string;
             /**
-             * @description null while the card is INACTIVE (the digits are the activation proof)
+             * @description The last 4 digits, to show as "•••• 4821". `null` while the card is
+             *     `INACTIVE`, because the digits are the activation proof.
              * @example 4821
              */
             last4: string | null;
             status: components["schemas"]["CardStatus"];
-            /** Format: uri */
+            /**
+             * Format: uri
+             * @description Image of the card design, for the card on the screen
+             */
             imageUrl: string;
         };
+        /** @description The "Invoice due" row */
         InvoiceDue: {
             /** Format: uuid */
             id: string;
             amount: components["schemas"]["Money"];
             /**
              * Format: date
+             * @description Last day to pay, in Swedish time
              * @example 2026-10-30
              */
             dueDate: string;
+            /** @description True from the day after `dueDate`. Highlight the row. */
             isOverdue: boolean;
         };
         /**
-         * @description Spend in the current calendar month (Europe/Stockholm) against the
-         *     limit the user set. Pending and settled purchases count, refunds
-         *     reduce spend, declined transactions are ignored. `spent` never goes
-         *     below 0, so a refund for last month's purchase cannot push
-         *     `remaining` above `limit`.
+         * @description The "5 400 / 10 000 kr, based on your set limit" block: spend in the
+         *     current calendar month (Swedish time) against the limit the user chose.
+         *
+         *     Pending and settled purchases count, refunds reduce spend, declined
+         *     transactions are ignored.
+         *
+         *     - `spent`: spent this month. Never negative, even after a refund for
+         *       last month's purchase.
+         *     - `limit`: the spend limit the user set.
+         *     - `remaining`: never negative.
+         *     - A progress bar is `spent / limit`. `spent` can be above `limit`, so
+         *       cap the bar at full.
          */
         Spend: {
             spent: components["schemas"]["Money"];
             limit: components["schemas"]["Money"];
             /** @description max(limit - spent, 0). Never negative. */
             remaining: components["schemas"]["Money"];
-            /** Format: date */
+            /**
+             * Format: date
+             * @description First day of the month
+             */
             periodStart: string;
             /**
              * Format: date
-             * @description Last day of the period (inclusive)
+             * @description Last day of the month (inclusive)
              */
             periodEnd: string;
         };
         Transaction: {
             /** Format: uuid */
             id: string;
-            /** @example Clas Ohlson */
+            /**
+             * @description Name to show
+             * @example Clas Ohlson
+             */
             merchant: string;
             /** @description Negative = purchase, positive = refund */
             amount: components["schemas"]["Money"];
-            /** @enum {string} */
+            /**
+             * @description - `PENDING`: reserved, not final yet; the amount can still change.
+             *     - `SETTLED`: final.
+             *     - `DECLINED`: the purchase was refused; show it as declined. It does
+             *       not count towards spend.
+             * @enum {string}
+             */
             status: "PENDING" | "SETTLED" | "DECLINED";
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description When the purchase was made, in UTC. Show in the user's time zone.
+             */
             occurredAt: string;
         };
         LatestTransactions: {
+            /** @description The 3 newest transactions, newest first */
             items: components["schemas"]["Transaction"][];
             /** @description All transactions on the card. "N more" = totalCount - items.length */
             totalCount: number;
         };
-        /** @description Decided by the backend so business rules live in one place */
+        /** @description What the user may do. Decided by the backend; the app has no rules of its own. */
         Actions: {
+            /** @description Show the "Activate card" button */
             canActivateCard: boolean;
             /**
-             * @description Why activation is not possible, so the app can show the right text
-             *     without its own rules. null when `canActivateCard` is true.
-             *     LOCKED means too many wrong attempts: show "Contact support".
+             * @description Why the button is hidden. `null` when `canActivateCard` is true.
+             *
+             *     - `NO_CARD`: the user has no card in this company (empty state).
+             *     - `NOT_INACTIVE`: the card is already active, frozen or closed.
+             *       Nothing to show.
+             *     - `LOCKED`: too many wrong digits. Show "Contact support" with the
+             *       options from `support`.
              * @enum {string|null}
              */
             activationBlockedReason: "NO_CARD" | "NOT_INACTIVE" | "LOCKED" | null;
         };
+        /** @description The "Contact Qred's support" options */
         Support: {
-            /** @example +46 8 000 00 00 */
+            /**
+             * @description Formatted for display. Remove spaces for a `tel:` link.
+             * @example +46 8 000 00 00
+             */
             phone: string;
-            /** Format: email */
+            /**
+             * Format: email
+             * @example support@example.com
+             */
             email: string;
-            /** Format: uri */
+            /**
+             * Format: uri
+             * @description Help pages
+             * @example https://example.com/support
+             */
             url: string;
         };
         CardOverview: {
             company: components["schemas"]["CompanySummary"];
+            /** @description `null` when the user has no card in this company */
             card: components["schemas"]["Card"] | null;
             /**
-             * @description The oldest unpaid invoice. null when nothing is due, or when the
-             *     user is not OWNER or ADMIN of the company.
+             * @description The oldest unpaid invoice. `null` when nothing is due, or when the
+             *     user is not OWNER or ADMIN of the company: hide the row.
              */
             invoiceDue: components["schemas"]["InvoiceDue"] | null;
+            /** @description `null` when the user has no card in this company */
             spend: components["schemas"]["Spend"] | null;
+            /** @description `null` when the user has no card in this company */
             latestTransactions: components["schemas"]["LatestTransactions"] | null;
             actions: components["schemas"]["Actions"];
             support: components["schemas"]["Support"];
         };
         TransactionPage: {
+            /** @description Newest first */
             items: components["schemas"]["Transaction"][];
-            /** @description null on the last page */
+            /** @description Pass as `cursor` for the next page. `null` on the last page. */
             nextCursor: string | null;
         };
-        /** @description RFC 9457 problem details */
+        /**
+         * @description RFC 9457 problem details. `title` and `detail` are English text for
+         *     developers and logs; never show them to users. Use the HTTP status (and
+         *     fields such as `attemptsRemaining`) to choose the user's text.
+         */
         Problem: {
             /** @example about:blank */
             type: string;
+            /** @description The HTTP reason phrase */
             title: string;
+            /** @description Same as the HTTP status */
             status: number;
+            /** @description What went wrong, for developers */
             detail?: string;
+            /** @description The request path */
             instance?: string;
         };
         ActivationProblem: components["schemas"]["Problem"] & {
+            /** @description Wrong attempts left before activation locks. At 0 the next attempt gets `423`. */
             attemptsRemaining: number;
         };
     };
     responses: {
-        /** @description Invalid input (bad id, limit or cursor) */
+        /** @description The request is malformed (bad id, limit, cursor or body). A bug in the app, except an expired cursor. */
         BadRequest: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
+                /**
+                 * @example {
+                 *       "type": "about:blank",
+                 *       "title": "Bad Request",
+                 *       "status": 400,
+                 *       "detail": "Invalid cursor",
+                 *       "instance": "/v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a01/transactions"
+                 *     }
+                 */
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Missing or invalid token */
+        /** @description Token missing, invalid or expired. Sign the user in again. */
         Unauthorized: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
+                /**
+                 * @example {
+                 *       "type": "about:blank",
+                 *       "title": "Unauthorized",
+                 *       "status": 401,
+                 *       "detail": "Missing or invalid bearer token",
+                 *       "instance": "/v1/me/companies"
+                 *     }
+                 */
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
         /**
-         * @description Not found, or the user has no access. We do not reveal whether a
-         *     resource exists to users who cannot see it.
+         * @description Does not exist, or the user has no access. The API does not reveal
+         *     which, so other customers' ids cannot be probed.
          */
         NotFound: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
+                /**
+                 * @example {
+                 *       "type": "about:blank",
+                 *       "title": "Not Found",
+                 *       "status": 404,
+                 *       "detail": "Company not found",
+                 *       "instance": "/v1/companies/01922f6e-7d1a-7c3e-9b2a-5d4e3f2a1b09/card-overview"
+                 *     }
+                 */
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
         /**
-         * @description The card cannot be activated: it is FROZEN or CLOSED, or already
-         *     ACTIVE and the digits do not match.
+         * @description The card cannot be activated in its current state: it is FROZEN or
+         *     CLOSED, or already ACTIVE and the digits do not match. Reload the overview.
          */
         Conflict: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
+                /**
+                 * @example {
+                 *       "type": "about:blank",
+                 *       "title": "Conflict",
+                 *       "status": 409,
+                 *       "detail": "A FROZEN card cannot be activated",
+                 *       "instance": "/v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a01/activation"
+                 *     }
+                 */
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description The digits do not match the card */
+        /** @description The digits do not match the card. Show how many attempts are left. */
         WrongActivationDigits: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
+                /**
+                 * @example {
+                 *       "type": "about:blank",
+                 *       "title": "Unprocessable Content",
+                 *       "status": 422,
+                 *       "detail": "The digits do not match the card",
+                 *       "instance": "/v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a02/activation",
+                 *       "attemptsRemaining": 4
+                 *     }
+                 */
                 "application/problem+json": components["schemas"]["ActivationProblem"];
             };
         };
-        /** @description Too many wrong attempts. Only support can unlock activation. */
+        /** @description Too many wrong attempts. Only support can unlock activation; show the options from `support`. */
         ActivationLocked: {
             headers: {
                 [name: string]: unknown;
             };
             content: {
+                /**
+                 * @example {
+                 *       "type": "about:blank",
+                 *       "title": "Locked",
+                 *       "status": 423,
+                 *       "detail": "Too many wrong attempts. Contact support to unlock activation.",
+                 *       "instance": "/v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a02/activation"
+                 *     }
+                 */
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description The body is not application/json */
+        /** @description The body is not `application/json`. A bug in the app. */
         UnsupportedMediaType: {
             headers: {
                 [name: string]: unknown;
@@ -322,7 +470,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Too many requests from this user. Wait `Retry-After` seconds. */
+        /** @description Too many attempts from this user. Wait `Retry-After` seconds before allowing another try. */
         TooManyRequests: {
             headers: {
                 /** @description Seconds until the user can try again */
@@ -330,10 +478,19 @@ export interface components {
                 [name: string]: unknown;
             };
             content: {
+                /**
+                 * @example {
+                 *       "type": "about:blank",
+                 *       "title": "Too Many Requests",
+                 *       "status": 429,
+                 *       "detail": "Too many attempts. Try again in 15 minutes.",
+                 *       "instance": "/v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a02/activation"
+                 *     }
+                 */
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Database not reachable */
+        /** @description The database cannot be reached */
         ServiceUnavailable: {
             headers: {
                 [name: string]: unknown;
@@ -344,7 +501,9 @@ export interface components {
         };
     };
     parameters: {
+        /** @description `id` from `GET /v1/me/companies` */
         CompanyId: string;
+        /** @description `card.id` from the overview */
         CardId: string;
     };
     requestBodies: never;
@@ -405,6 +564,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description `id` from `GET /v1/me/companies` */
                 companyId: components["parameters"]["CompanyId"];
             };
             cookie?: never;
@@ -428,12 +588,14 @@ export interface operations {
     listCardTransactions: {
         parameters: {
             query?: {
+                /** @description Page size */
                 limit?: number;
-                /** @description Opaque value from `nextCursor` of the previous page */
+                /** @description Opaque value from `nextCursor` of the previous page. Do not build or parse it. */
                 cursor?: string;
             };
             header?: never;
             path: {
+                /** @description `card.id` from the overview */
                 cardId: components["parameters"]["CardId"];
             };
             cookie?: never;
@@ -459,6 +621,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description `card.id` from the overview */
                 cardId: components["parameters"]["CardId"];
             };
             cookie?: never;
@@ -466,7 +629,10 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @example 4821 */
+                    /**
+                     * @description The last 4 digits printed on the card, as typed by the user
+                     * @example 4821
+                     */
                     last4: string;
                 };
             };
@@ -478,6 +644,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    /**
+                     * @example {
+                     *       "id": "01922f6e-8a10-7f00-a111-0c5e1d2b3a02",
+                     *       "last4": "7310",
+                     *       "status": "ACTIVE",
+                     *       "imageUrl": "https://cdn.example.com/cards/black.png"
+                     *     }
+                     */
                     "application/json": components["schemas"]["Card"];
                 };
             };

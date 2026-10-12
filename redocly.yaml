@@ -3,3 +3,9 @@ extends:
 rules:
   info-license: off
   no-server-example.com: off # local-only servers are intended for this case
+  # Every example must match its schema: frontend and the mock rely on them.
+  no-invalid-media-type-examples:
+    severity: error
+    allowAdditionalProperties: false
+  no-invalid-parameter-examples: error
+  no-invalid-schema-examples: error
