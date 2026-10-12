@@ -38,9 +38,13 @@ describe('authentication', () => {
   });
 
   it('rejects an expired token', async () => {
-    const res = await listCompanies(`Bearer ${await ctx.token('u', { expiresIn: '-1m' })}`);
+    const user = randomUUID();
+    const expired = await listCompanies(`Bearer ${await ctx.token(user, { expiresIn: '-1m' })}`);
+    // Same user, not expired: proves the expiry is what fails.
+    const valid = await listCompanies(`Bearer ${await ctx.token(user, { expiresIn: '1m' })}`);
 
-    expect(res.statusCode).toBe(401);
+    expect(expired.statusCode).toBe(401);
+    expect(valid.statusCode).toBe(200);
   });
 
   it('rejects a valid token whose subject is not a user id', async () => {
@@ -62,5 +66,33 @@ describe('authentication', () => {
     const res = await listCompanies(`Bearer ${await ctx.tokenWithoutExpiry(randomUUID())}`);
 
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe('every protected operation', () => {
+  const ctx = useTestContext({}, { reset: false });
+
+  const id = randomUUID();
+  const operations: [string, 'GET' | 'POST', string, object?][] = [
+    ['card overview', 'GET', `/v1/companies/${id}/card-overview`],
+    ['transactions', 'GET', `/v1/cards/${id}/transactions`],
+    ['activation', 'POST', `/v1/cards/${id}/activation`, { last4: '4821' }],
+    ['companies', 'GET', '/v1/me/companies'],
+  ];
+  const cases = operations.flatMap(([name, method, url, payload]) => [
+    [name, 'without a token', method, url, payload, undefined],
+    [name, 'with a bad token', method, url, payload, 'Bearer not-a-jwt'],
+  ] as const);
+
+  it.each(cases)('%s: returns 401 %s', async (_name, _how, method, url, payload, authorization) => {
+    const res = await ctx.app.inject({
+      method,
+      url,
+      headers: authorization ? { authorization } : {},
+      ...(payload && { payload }),
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.headers['www-authenticate']).toBe('Bearer');
   });
 });

@@ -29,6 +29,8 @@ describe("the app's database privileges", () => {
     ['delete data', 'DELETE FROM transactions'],
     ['create rows', "INSERT INTO users (email, name) VALUES ('x@example.com', 'X')"],
     ['raise a spend limit', 'UPDATE cards SET spend_limit_minor = 99999999'],
+    ["read users' names and e-mails", 'SELECT email FROM users'],
+    ['rewrite the activation audit trail', 'DELETE FROM card_activation_events'],
   ])('cannot %s', async (_name, sql) => {
     await expect(appDb.query(sql)).rejects.toThrow(/permission denied|must be owner/);
   });

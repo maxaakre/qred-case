@@ -95,7 +95,7 @@ npm run token -- anna
 
 **Logs:** `docker compose logs -f api` and `npm start` print one JSON object per line, as in production; `npm run dev` prints readable, coloured logs. Set the level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
 
-**Frontend without the backend:** `docker compose up` already serves the contract with Prism on `http://localhost:4010`; `npm run mock` does the same without Docker. Pick a state with a header: `Prefer: example=inactiveCard` (or `activeCard`, `activationLocked`, `frozenCard`, `noCard`), or an error with `Prefer: code=423`.
+**Frontend without the backend:** `docker compose up` already serves the contract with Prism on `http://localhost:4010`; `npm run mock` does the same without Docker. Pick a state with a header: `Prefer: example=inactiveCard` (or `activeCard`, `replacementCard`, `activationLocked`, `frozenCard`, `noCard`), or an error with `Prefer: code=423`.
 
 ## From the screen to the API
 
@@ -106,7 +106,7 @@ npm run token -- anna
 | Card image › | `card.imageUrl`, `card.status`, `card.last4` |
 | Remaining spend: 5 400/10 000 kr, based on your set limit | `spend.remaining` / `spend.limit` (and `spend.spent`) |
 | Latest transactions | `latestTransactions.items` (3 newest) |
-| 54 more items in transaction view › | `latestTransactions.totalCount − items.length`, then `GET /v1/cards/{cardId}/transactions` |
+| 54 more items in transaction view › | `latestTransactions.totalCount − items.length`, then `GET /v1/cards/{latestTransactions.cardId}/transactions` |
 | Activate card | `actions.canActivateCard`, `actions.activationBlockedReason`, then `POST /v1/cards/{cardId}/activation` |
 | Contact Qred's support | `support` |
 
@@ -117,7 +117,7 @@ npm run token -- anna
 - **Money is `{ minor, currency }`.** Integer öre, never floats; formatting is left to the client's locale ([ADR 0004](docs/adr/0004-money-in-minor-units.md)).
 - **`null` means "nothing to show".** A member without a card gets `card: null` and an empty state, not an error.
 - **Consistent numbers.** Spend, latest transactions and the total count come from one database snapshot ([ADR 0007](docs/adr/0007-spend-is-computed-on-read.md)).
-- **Errors are RFC 9457 `problem+json`**, with extra fields where the app needs them (`attemptsRemaining`).
+- **Errors are RFC 9457 `problem+json`**, with extra fields where the app needs them (`attemptsRemaining`), and a problem `type` where one status has several causes (`/problems/card-changed` vs `/problems/card-not-activatable`).
 
 ### Database design
 
@@ -125,7 +125,8 @@ See [`db/migrations/001_init.sql`](db/migrations/001_init.sql).
 
 - **Membership is the access boundary.** `company_members` decides what a user can see; the token only says who they are ([ADR 0006](docs/adr/0006-identity-in-token-access-in-database.md)).
 - **The database refuses invalid states**: spend limit above credit limit, an inactive card with an activation date, a zero-amount transaction, a transaction in another currency than its card (composite foreign key, migration 002).
-- **Indexes match the queries**: `(card_id, occurred_at DESC, id DESC)` serves both "latest 3" and pagination; a partial index covers only unpaid invoices.
+- **Indexes match the queries**: `(card_id, occurred_at DESC, id DESC) INCLUDE (amount_minor, status)` serves "latest 3" and pagination, and the spend sum from the index alone; partial indexes cover only unpaid invoices and open cards.
+- **Migrations are safe on a live database**: each waits at most 5 s for a table lock, and indexes are built `CONCURRENTLY` (`-- migrate: no-transaction`), so writes never wait for them.
 - **PostgreSQL 18** with time-ordered `uuidv7()` ids ([ADR 0003](docs/adr/0003-postgres.md)).
 
 ## Architecture
@@ -237,18 +238,18 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 ## Edge cases handled
 
 - No access to a company or card → **404**, same as "does not exist", so ids of other customers are not confirmed ([ADR 0005](docs/adr/0005-404-when-the-user-has-no-access.md)).
-- Member without a card → empty state. Several cards → the newest one that is not closed, so a replacement card issued while the old one still works shows up with its "Activate card" button. Frozen cards are shown.
+- Member without a card → empty state. Several cards → the newest one that is not closed, so a replacement card issued while the old one still works shows up with its "Activate card" button. Spend and the latest transactions still come from the old card while it is in use, so the screen never claims the whole limit is left (`latestTransactions.cardId` says which card). Frozen cards are shown.
 - Spend uses the **calendar month in Swedish time**: a purchase at 00:30 on the 1st belongs to the new month, across summer/winter time.
 - Pending and settled purchases count, refunds reduce spend in the month they arrive, declined ones are ignored. Spent never goes below zero and remaining never goes below zero.
 - Invoices are visible to owners and admins only. Overdue the day after the due date, in Swedish time.
 - Pagination never repeats or skips rows when new transactions arrive; ties on the same timestamp are ordered by id; cursors from another card are rejected.
 - Activation requires the last 4 digits, hidden while the card is inactive. Wrong digits → **422** with attempts left; after 5 → **423** until support unlocks. Already active with the right digits → **200** (safe to retry); wrong digits on an active card, or a frozen or closed card → **409** ([ADR 0008](docs/adr/0008-activation-proof-and-lockout.md)).
 - Concurrent activation attempts cannot get extra guesses: the counter is one atomic `UPDATE`. Right and wrong digits at the same time activate once. A holder who has left the company cannot see or activate the card.
-- Activation is also **rate limited per user** across all their cards (10 per 15 minutes by default) → **429** with `Retry-After`. It counts after the token check, so nobody can use up another user's attempts. The lockout protects one card; the rate limit protects the service.
+- Activation is also **rate limited per user** across all their cards (10 per 15 minutes by default) → **429** with `Retry-After`. It counts after the token check, so nobody can use up another user's attempts. The lockout protects one card; the rate limit protects the service. Every other `/v1` route has a generous per-user limit (300 a minute), so one user cannot take all the database connections.
 - Every response has `Cache-Control: no-store`, so no proxy or device cache keeps personal financial data.
 - Invalid input gets `400` with an `errors` list: every invalid field at once, where it is (`body`, `query`, `path`) and what is wrong, so the app can mark the right fields. A method the route does not take gets `405` with an `Allow` header (no `HEAD` routes outside the contract); an unknown route gets `404` naming it. `401` carries `WWW-Authenticate: Bearer`, and `instance` in an error is the path only, never a query with a cursor.
 - Unknown body fields are rejected, not silently dropped (unknown query parameters are ignored). Non-JSON bodies get **415** instead of skipping validation. Tokens without an expiry or with a non-uuid subject are rejected.
-- Database down or overloaded (connection lost, connect timeout, query timeout) → **503** with `Retry-After`, so the app can offer "Try again". `/live` still answers 200 (liveness, no database), while `/health` answers 503 (readiness), so the platform stops sending traffic instead of restarting healthy instances. A dropped idle connection is logged, not a crash; a failed transaction keeps its original error and the broken connection is discarded. A bug returns a generic 500 and is logged, never leaked, and the app keeps serving. An error outside any request is logged as fatal and the process exits, so the platform starts a clean one.
+- Database down or overloaded (connection lost, connect timeout, query timeout) → **503** with `Retry-After`, so the app can offer "Try again". `/live` still answers 200 (liveness, no database), while `/health` answers 503 (readiness), so the platform stops sending traffic instead of restarting healthy instances. On `SIGTERM`, `/health` fails at once while requests are still served for 3 s, so the load balancer moves traffic away before the listener closes. A dropped idle connection is logged, not a crash; a failed transaction keeps its original error and the broken connection is discarded. A bug returns a generic 500 and is logged, never leaked, and the app keeps serving. An error outside any request is logged as fatal and the process exits, so the platform starts a clean one.
 
 ## Security
 
@@ -256,18 +257,19 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 |---|---|
 | Reading another customer's data | Access is checked in the database on every request (membership), never trusted from the token or the URL. No access and "does not exist" give the same `404`. `/v1/me/...` has no user id to tamper with. |
 | Forged or stolen tokens | HS256 only (no `alg: none`), and `exp`, `iat`, `sub`, `iss` and `aud` are required, so a token for another service is refused even with the same key. A token issued more than an hour ago is refused whatever its expiry says, which limits what a stolen token is worth; demo tokens live one hour. Tokens are redacted from the logs. |
-| Guessing activation digits | 5 wrong attempts lock the card (one atomic `UPDATE`, safe under concurrency), plus a per-user rate limit. Every outcome is an audit log event (`event: card_activation`, never the digits), the lockout a warning, and the card keeps `last_failed_activation_at` ([migration 004](db/migrations/004_activation_audit.sql)). |
+| Guessing activation digits | 5 wrong attempts lock the card (one atomic `UPDATE`, safe under concurrency), plus a per-user rate limit. Every outcome is a row in `card_activation_events`, written by the same statement as the card change, and a log event (`event: card_activation`, never the digits); the lockout is a warning ([migration 005](db/migrations/005_card_activation_events.sql)). |
 | Malformed or oversized input | Every request is validated against the contract: unknown fields are rejected, non-JSON bodies get `415`, bodies over 1 KiB get `413`. Bodies with `__proto__` keys are rejected (prototype pollution). |
 | SQL injection | Every query is parameterized; user input is never put into SQL text. |
-| A bug or breach in the app reaching the data | The app connects as `card_api`, which can read the tables and update four columns of `cards`, nothing else ([migration 003](db/migrations/003_app_role.sql)). Migrations run as the schema owner. The whole test suite runs as this role, so it proves the app needs no more. |
+| A bug or breach in the app reaching the data | The app connects as `card_api`, which can read the tables it uses (not `users`), update four columns of `cards` and add activation events, nothing else ([migration 003](db/migrations/003_app_role.sql), [005](db/migrations/005_card_activation_events.sql)). Migrations run as the schema owner. The whole test suite runs as this role, so it proves the app needs no more. |
 | Slow clients and slow queries | Requests time out after 10 s; queries are cancelled after 5 s and idle transactions after 10 s, so one request cannot hold a connection. |
 | Leaking internals | Unexpected errors return a generic `500`; the details go to the log with the request id. |
 | Browsers and caches | `Cache-Control: no-store`, `nosniff`, HSTS, and a content security policy that lets an API response run nothing. `/docs` gets its own narrow policy and cannot be framed. |
 | Vulnerable dependencies | CI fails on known high-severity vulnerabilities in production dependencies; Dependabot opens update pull requests for npm, actions and the base image. Actions are pinned to commits and the workflow token is read-only. |
 | A compromised container | The image runs as a non-root user; in Compose the app containers have a read-only filesystem, no Linux capabilities and no privilege escalation. |
-| Demo shortcuts in production | Demo mode is off unless `DEMO_MODE=true`, logs a warning when on, and its tokens only reach the seeded demo users ([ADR 0009](docs/adr/0009-demo-tokens-outside-the-contract.md)). |
+| Demo shortcuts in production | Demo mode is off unless `DEMO_MODE=true`, logs a warning when on, and its tokens only reach the seeded demo users ([ADR 0009](docs/adr/0009-demo-tokens-outside-the-contract.md)). The seed script, which empties every table, refuses to run in the production image unless `ALLOW_DEMO_SEED=true` (only Compose sets it). |
+| Forgotten production settings | With `NODE_ENV=production` (set in the image) the dev defaults are gone: `JWT_ISSUER` and `JWT_AUDIENCE` must be set, and `/docs` is off unless `DOCS_ENABLED=true`. |
 
-Before production, see "With more time": a real identity provider with asymmetric keys, a shared rate-limit store and a WAF in front, and secrets in Secrets Manager. Set `DOCS_ENABLED=false` if the API is not meant to be public.
+Before production, see "With more time": a real identity provider with asymmetric keys, a shared rate-limit store and a WAF in front, and secrets in Secrets Manager.
 
 ## Logging and tracing a request
 
@@ -275,7 +277,7 @@ Before production, see "With more time": a real identity provider with asymmetri
 - An incoming id is only trusted if it is short and plain (letters, digits, `.`, `_`, `-`, max 128). Anything else, such as a line break that could fake log lines, is replaced.
 - **Levels mean something:** `error` is a bug or an outage (unhandled error with stack trace, lost database connection), `warn` is degraded (health check cannot reach the database), `info` is one line in and one line out per request. Expected 4xx answers are not errors, so they do not trigger alerts.
 - Health checks (`/live`, `/health`) are logged only when they fail, so probes every few seconds do not bury real requests.
-- **Activation is audited:** every attempt logs `event: card_activation` with the card, the user and the outcome (`activated`, `wrong_digits` with attempts left, `locked`). The attempt that locks a card is a `warn`. The digits are never logged.
+- **Activation is audited:** every attempt is a row in `card_activation_events` and a log line `event: card_activation`, with the card, the user and the outcome (`activated`, `wrong_digits` with attempts left, `locked`). The attempt that locks a card is a `warn`. The digits are never logged.
 - The `Authorization` header is redacted from the logs. `LOG_LEVEL` is validated at startup like the rest of the config.
 
 ## Testing

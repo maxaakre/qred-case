@@ -52,6 +52,26 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
     });
   });
 
+  describe('member whose only card is closed', () => {
+    it('returns the same empty state as a member without a card', async () => {
+      const { user, company } = await member();
+      await ctx.fx.card({ holder: user, company, status: 'CLOSED' });
+
+      const res = await getOverview(user, company);
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        company: { id: company, name: 'Company AB' },
+        card: null,
+        invoiceDue: null,
+        spend: null,
+        latestTransactions: null,
+        actions: { canActivateCard: false, activationBlockedReason: 'NO_CARD' },
+        support: testConfig.support,
+      });
+    });
+  });
+
   describe('card', () => {
     it("shows the user's active card with spend and an empty transaction list", async () => {
       const { user, company } = await member();
@@ -69,7 +89,7 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
           periodStart: '2026-10-01',
           periodEnd: '2026-10-31',
         },
-        latestTransactions: { items: [], totalCount: 0 },
+        latestTransactions: { cardId: card, items: [], totalCount: 0 },
         actions: { canActivateCard: false, activationBlockedReason: 'NOT_INACTIVE' },
       });
     });
@@ -100,6 +120,8 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const body = (await getOverview(user, company)).json();
 
       expect(body.card).toMatchObject({ id: card, status: 'FROZEN' });
+      expect(body.actions).toEqual({ canActivateCard: false, activationBlockedReason: 'NOT_INACTIVE' });
+      expect(body.spend).toMatchObject({ spent: { minor: 0 }, limit: { minor: 1_000_000 }, remaining: { minor: 1_000_000 } });
     });
 
     it('shows the newest card that is not closed', async () => {
@@ -110,6 +132,52 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const body = (await getOverview(user, company)).json();
 
       expect(body.card).toMatchObject({ id: older });
+    });
+
+    it('offers to activate a replacement card, but shows the spend of the card still in use', async () => {
+      const { user, company } = await member();
+      const old = await ctx.fx.card({ holder: user, company, status: 'ACTIVE', spendLimit: 1_000_000, createdAt: '2026-01-01T00:00:00Z' });
+      const replacement = await ctx.fx.card({ holder: user, company, status: 'INACTIVE', spendLimit: 1_000_000, createdAt: '2026-09-01T00:00:00Z' });
+      await ctx.fx.transaction(old, { amount: -250_000, occurredAt: '2026-10-05T12:00:00Z' });
+
+      const body = (await getOverview(user, company)).json();
+
+      expect(body.card).toMatchObject({ id: replacement, status: 'INACTIVE', last4: null });
+      expect(body.actions).toEqual({ canActivateCard: true, activationBlockedReason: null });
+      expect(body.spend).toMatchObject({ spent: { minor: 250_000 }, remaining: { minor: 750_000 } });
+      expect(body.latestTransactions).toMatchObject({ cardId: old, totalCount: 1 });
+    });
+
+    it('shows the new card on its own once the old one is closed', async () => {
+      const { user, company } = await member();
+      const old = await ctx.fx.card({ holder: user, company, status: 'CLOSED', createdAt: '2026-01-01T00:00:00Z' });
+      const replacement = await ctx.fx.card({ holder: user, company, status: 'INACTIVE', createdAt: '2026-09-01T00:00:00Z' });
+      await ctx.fx.transaction(old, { amount: -250_000, occurredAt: '2026-10-05T12:00:00Z' });
+
+      const body = (await getOverview(user, company)).json();
+
+      expect(body.spend).toMatchObject({ spent: { minor: 0 } });
+      expect(body.latestTransactions).toEqual({ cardId: replacement, items: [], totalCount: 0 });
+    });
+
+    it('only shows a card from the company asked for', async () => {
+      const { user, company: a } = await member();
+      const b = await ctx.fx.company('Other AB');
+      await ctx.fx.member(user, b);
+      const card = await ctx.fx.card({ holder: user, company: b });
+      await ctx.fx.transaction(card, { amount: -100_000, occurredAt: '2026-10-05T09:00:00Z' });
+
+      const inA = (await getOverview(user, a)).json();
+      const inB = (await getOverview(user, b)).json();
+
+      expect(inA).toMatchObject({
+        card: null,
+        spend: null,
+        latestTransactions: null,
+        actions: { canActivateCard: false, activationBlockedReason: 'NO_CARD' },
+      });
+      expect(inB.card).toMatchObject({ id: card });
+      expect(inB.latestTransactions.totalCount).toBe(1);
     });
 
     it("never shows a colleague's card", async () => {
@@ -148,6 +216,17 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       const { user, company } = await member();
       const card = await ctx.fx.card({ holder: user, company, spendLimit: 1_000_000 });
       await ctx.fx.transaction(card, { amount: -100_000, occurredAt: '2026-09-30T22:30:00Z' });
+
+      const body = (await getOverview(user, company)).json();
+
+      expect(body.spend.spent.minor).toBe(100_000);
+    });
+
+    it('counts a purchase at the exact start of the month, and not one at the exact start of the next', async () => {
+      const { user, company } = await member();
+      const card = await ctx.fx.card({ holder: user, company, spendLimit: 1_000_000 });
+      await ctx.fx.transaction(card, { amount: -100_000, occurredAt: '2026-09-30T22:00:00Z' }); // 00:00 Oct 1 in Stockholm
+      await ctx.fx.transaction(card, { amount: -20_000, occurredAt: '2026-10-31T23:00:00Z' }); // 00:00 Nov 1 in Stockholm
 
       const body = (await getOverview(user, company)).json();
 
@@ -218,11 +297,39 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
 
     it('shows the invoice to an admin', async () => {
       const { user, company } = await member('ADMIN');
-      await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-30' });
+      const invoice = await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-30' });
 
       const body = (await getOverview(user, company)).json();
 
-      expect(body.invoiceDue).not.toBeNull();
+      expect(body.invoiceDue).toEqual({
+        id: invoice,
+        amount: { minor: 540_000, currency: 'SEK' },
+        dueDate: '2026-10-30',
+        isOverdue: false,
+      });
+    });
+
+    it("never shows another company's invoice, even an older one", async () => {
+      const { user, company: a } = await member('OWNER');
+      const b = await ctx.fx.company('Other AB');
+      await ctx.fx.member(user, b, 'OWNER');
+      await ctx.fx.invoice(b, { amount: 70_000, dueDate: '2026-09-01' });
+      const own = await ctx.fx.invoice(a, { amount: 540_000, dueDate: '2026-10-30' });
+
+      const body = (await getOverview(user, a)).json();
+
+      expect(body.invoiceDue).toMatchObject({ id: own });
+    });
+
+    it('shows no invoice when only another company has one', async () => {
+      const { user, company: a } = await member('OWNER');
+      const b = await ctx.fx.company('Other AB');
+      await ctx.fx.member(user, b, 'OWNER');
+      await ctx.fx.invoice(b, { amount: 70_000, dueDate: '2026-09-01' });
+
+      const body = (await getOverview(user, a)).json();
+
+      expect(body.invoiceDue).toBeNull();
     });
 
     it('hides the invoice from an employee', async () => {
@@ -261,5 +368,19 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       expect(body.card).toBeNull();
       expect(body.invoiceDue).toMatchObject({ amount: { minor: 540_000 } });
     });
+  });
+});
+
+describe('card overview just after midnight in Sweden', () => {
+  // 22:30 UTC on Oct 12 is 00:30 on Oct 13 in Stockholm.
+  const ctx = useTestContext({}, { now: new Date('2026-10-12T22:30:00Z') });
+
+  it('marks an invoice due Oct 12 overdue, though it is still Oct 12 in UTC', async () => {
+    const { user, company } = await ctx.fx.memberOf('OWNER');
+    await ctx.fx.invoice(company, { amount: 540_000, dueDate: '2026-10-12' });
+
+    const body = (await ctx.overview(user, company)).json();
+
+    expect(body.invoiceDue).toMatchObject({ dueDate: '2026-10-12', isOverdue: true });
   });
 });

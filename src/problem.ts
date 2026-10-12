@@ -1,6 +1,18 @@
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { STATUS_CODES } from 'node:http';
 
+/**
+ * Problem types for causes the app must tell apart without reading `detail` (openapi.yaml,
+ * "Showing errors to users"). Everything else is `about:blank`: the status says it all.
+ */
+export const ProblemType = {
+  invalidCursor: '/problems/invalid-cursor',
+  cardNotActivatable: '/problems/card-not-activatable',
+  cardChanged: '/problems/card-changed',
+  wrongActivationDigits: '/problems/wrong-activation-digits',
+  activationLocked: '/problems/activation-locked',
+} as const;
+
 /** An error that becomes an RFC 9457 problem+json response. */
 export class HttpProblem extends Error {
   constructor(
@@ -8,6 +20,7 @@ export class HttpProblem extends Error {
     readonly title: string,
     readonly detail?: string,
     readonly extensions: Record<string, unknown> = {},
+    readonly type: string = 'about:blank',
   ) {
     super(detail ?? title);
   }
@@ -93,7 +106,7 @@ function sendProblem(reply: FastifyReply, req: FastifyRequest, problem: HttpProb
     .status(problem.status)
     .type('application/problem+json')
     .send({
-      type: 'about:blank',
+      type: problem.type,
       title: problem.title,
       status: problem.status,
       ...(problem.detail && { detail: problem.detail }),

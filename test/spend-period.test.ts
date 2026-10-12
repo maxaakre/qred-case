@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { spendPeriodFor } from '../src/domain/spend-period.js';
+import { spendPeriodFor, swedishDate } from '../src/domain/spend-period.js';
 
 describe('spendPeriodFor', () => {
   it('is the calendar month the instant falls in', () => {
@@ -41,5 +41,20 @@ describe('spendPeriodFor', () => {
       startsAt: new Date('2026-11-30T23:00:00Z'),
       endsAt: new Date('2026-12-31T23:00:00Z'),
     });
+  });
+});
+
+describe('swedishDate', () => {
+  it.each([
+    // Summer time is UTC+2: the Swedish day turns at 22:00 UTC.
+    ['summer, 21:59 UTC', '2026-07-15T21:59:00Z', '2026-07-15'],
+    ['summer, 22:00 UTC', '2026-07-15T22:00:00Z', '2026-07-16'],
+    ['summer, 23:00 UTC', '2026-07-15T23:00:00Z', '2026-07-16'],
+    // Winter time is UTC+1: the Swedish day turns at 23:00 UTC.
+    ['winter, 22:00 UTC', '2026-01-15T22:00:00Z', '2026-01-15'],
+    ['winter, 22:59 UTC', '2026-01-15T22:59:00Z', '2026-01-15'],
+    ['winter, 23:00 UTC', '2026-01-15T23:00:00Z', '2026-01-16'],
+  ])('gives the Swedish date in %s', (_name, instant, date) => {
+    expect(swedishDate(new Date(instant))).toBe(date);
   });
 });

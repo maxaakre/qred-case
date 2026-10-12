@@ -93,6 +93,29 @@ describe('when the database is down', () => {
       instance: '/v1/me/companies',
     });
   });
+
+  it('answers 503 on the card overview too, which runs in a transaction', async () => {
+    const res = await ctx.overview(DEMO.anna, DEMO.companyAb);
+
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['retry-after']).toBe('5');
+  });
+});
+
+describe('when a query times out', () => {
+  // Postgres cancelled the query (statement_timeout): SQLSTATE 57014.
+  const slowPool = {
+    query: async () => Promise.reject(Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' })),
+    end: async () => {},
+  } as unknown as pg.Pool;
+  const ctx = useTestContext({}, { reset: false, appPool: slowPool });
+
+  it('answers 503 with Retry-After, since a retry may well work', async () => {
+    const res = await ctx.get(DEMO.anna, '/v1/me/companies');
+
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['retry-after']).toBe('5');
+  });
 });
 
 describe('when something unexpected fails', () => {

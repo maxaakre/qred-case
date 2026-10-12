@@ -1,11 +1,19 @@
 import type pg from 'pg';
 import type { Schemas } from './api.js';
 import { apiTransaction } from './mappers.js';
-import { HttpProblem, notFound } from './problem.js';
+import { HttpProblem, notFound, ProblemType } from './problem.js';
 import { cardsRepository } from './repositories/cards.js';
 import { isUuid } from './uuid.js';
 
-const invalidCursor = () => new HttpProblem(400, 'Bad Request', 'Invalid cursor');
+// Has `errors` like any other invalid input, and its own type so the app knows to start over.
+const invalidCursor = () =>
+  new HttpProblem(
+    400,
+    'Bad Request',
+    'Invalid cursor',
+    { errors: [{ in: 'query', field: 'cursor', message: 'is invalid or expired' }] },
+    ProblemType.invalidCursor,
+  );
 
 // The cursor is opaque to clients so we can change what is inside without breaking them.
 const encodeCursor = (transactionId: string) => Buffer.from(transactionId).toString('base64url');

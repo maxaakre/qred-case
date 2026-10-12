@@ -82,6 +82,12 @@ export async function seed(pool: pg.Pool, now = new Date()) {
 }
 
 if (isMain(import.meta.url)) {
+  // The seed empties every table first. The production image ships this script for the
+  // local demo (docker-compose.yml), so it must never run there by mistake.
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED !== 'true') {
+    console.error('Refusing to seed: it deletes all data. Set ALLOW_DEMO_SEED=true for a local demo database.');
+    process.exit(1);
+  }
   const pool = new pg.Pool({ connectionString: databaseUrlFromEnv() });
   await seed(pool);
   await pool.end();

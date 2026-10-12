@@ -4,15 +4,13 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import openapiGlue from 'fastify-openapi-glue';
-import type pg from 'pg';
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSecurityHandlers } from './auth.js';
-import type { Config } from './config.js';
 import { demoDocsUiConfig, registerDemoRoutes, withDemoDocs } from './demo.js';
 import { docsTheme } from './docs-theme.js';
-import { createHandlers } from './handlers.js';
+import { createHandlers, type HandlerDeps } from './handlers.js';
 import { HttpProblem, registerProblemHandlers } from './problem.js';
 
 const SPEC = fileURLToPath(new URL('../openapi/openapi.yaml', import.meta.url));
@@ -20,11 +18,7 @@ const SPEC = fileURLToPath(new URL('../openapi/openapi.yaml', import.meta.url));
 /** A caller's request id is trusted only if it cannot forge log lines or bloat them. */
 const SAFE_REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/;
 
-export interface AppDeps {
-  pool: pg.Pool;
-  config: Config;
-  /** Injected so tests control "now" (spend period, overdue invoices). */
-  now: () => Date;
+export interface AppDeps extends HandlerDeps {
   /** Pino logger options; off in tests. */
   logger?: FastifyServerOptions['logger'];
 }
@@ -80,9 +74,16 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(helmet, {
     contentSecurityPolicy: { useDefaults: false, directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } },
   });
-  // Only for operations marked `x-fastify-config: { rateLimit: {} }` in the spec.
-  // Runs after the bearer check, so it counts per signed-in user, and a stranger
-  // cannot use up someone else's attempts. Kept in memory: one count per instance.
+  // Every other /v1 route gets a generous per-user limit, so one user cannot take all the
+  // database connections. Must run before the rate-limit plugin's own onRoute hook.
+  app.addHook('onRoute', (route) => {
+    if (route.url.startsWith('/v1/') && route.config?.rateLimit === undefined) {
+      route.config = { ...route.config, rateLimit: { max: deps.config.readRateLimit.max, timeWindow: 60_000 } };
+    }
+  });
+  // The stricter default is for operations marked `x-fastify-config: { rateLimit: {} }` in the
+  // spec (activation). Runs after the bearer check, so it counts per signed-in user, and a
+  // stranger cannot use up someone else's attempts. Kept in memory: one count per instance.
   await app.register(rateLimit, {
     global: false,
     hook: 'preHandler',
@@ -98,19 +99,19 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     await app.register(swagger, { mode: 'static', specification: { path: SPEC, baseDir: dirname(SPEC) } });
     await app.register(swaggerUi, {
       routePrefix: '/docs',
-      // The docs page may load its own files and call this API and the mock server from the
-      // spec's `servers`, nothing else. No `upgrade-insecure-requests`: it runs on local http.
+      // The docs page may load its own files and call this API, nothing else. The local mock
+      // server from the spec's `servers` only in demo mode. No `upgrade-insecure-requests`: it runs on local http.
       staticCSP: {
         'default-src': ["'self'"],
         'base-uri': ["'self'"],
-        'connect-src': ["'self'", 'http://localhost:4010'],
+        'connect-src': ["'self'", ...(deps.config.demoMode ? ['http://localhost:4010'] : [])],
         'font-src': ["'self'", 'data:'],
         'img-src': ["'self'", 'data:'],
         'object-src': ["'none'"],
         'script-src': ["'self'"],
         'script-src-attr': ["'none'"],
         // The hash is one small style Swagger UI injects at runtime; all other inline styles stay blocked.
-        'style-src': ["'self'", 'https:', "'sha256-RL3ie0nH+Lzz2YNqQN83mnU0J1ot4QL7b99vMdIX99w='"],
+        'style-src': ["'self'", "'sha256-RL3ie0nH+Lzz2YNqQN83mnU0J1ot4QL7b99vMdIX99w='"],
         'frame-ancestors': ["'none'"],
       },
       theme: { title: 'Card Overview API', css: [{ filename: 'theme.css', content: docsTheme }] },

@@ -1,15 +1,5 @@
-import type { Schemas } from '../api.js';
 import { type Queryable, toSafeInteger } from '../db.js';
-import type { Card, CardStatus } from '../domain/types.js';
-
-export interface TransactionRow {
-  id: string;
-  merchant: string;
-  amountMinor: number;
-  currency: string;
-  status: Schemas['Transaction']['status'];
-  occurredAt: Date;
-}
+import type { Card, CardStatus, Transaction, TransactionStatus } from '../domain/types.js';
 
 /** Columns as pg returns them: bigint as a string. */
 interface CardDbRow {
@@ -27,7 +17,7 @@ interface TransactionDbRow {
   merchant: string;
   amount_minor: string;
   currency: string;
-  status: TransactionRow['status'];
+  status: TransactionStatus;
   occurred_at: Date;
 }
 
@@ -56,7 +46,7 @@ function cardFromRow(r: CardDbRow): Card {
   };
 }
 
-function transactionFromRow(r: TransactionDbRow): TransactionRow {
+function transactionFromRow(r: TransactionDbRow): Transaction {
   return {
     id: r.id,
     merchant: r.merchant,
@@ -72,13 +62,30 @@ export function cardsRepository(db: Queryable) {
     /**
      * The holder's most recently created card in the company that is not CLOSED.
      * A holder can have several open cards: a replacement is issued INACTIVE while the old
-     * card still works. The newest is shown, so the app offers to activate the replacement.
+     * card still works. The newest is shown, so the app offers to activate the replacement;
+     * spend comes from findCardInUse.
      */
     async findCurrentCard(holderUserId: string, companyId: string): Promise<Card | null> {
       const { rows } = await db.query<CardDbRow>(
         `SELECT ${CARD_COLUMNS}
            FROM cards c
           WHERE c.holder_user_id = $1 AND c.company_id = $2 AND c.status <> 'CLOSED'
+          ORDER BY c.created_at DESC, c.id DESC
+          LIMIT 1`,
+        [holderUserId, companyId],
+      );
+      return rows[0] ? cardFromRow(rows[0]) : null;
+    },
+
+    /**
+     * The holder's newest card in the company that can be used for purchases: ACTIVE, or FROZEN
+     * (still has this month's spend). While a replacement waits for activation, this is the old card.
+     */
+    async findCardInUse(holderUserId: string, companyId: string): Promise<Card | null> {
+      const { rows } = await db.query<CardDbRow>(
+        `SELECT ${CARD_COLUMNS}
+           FROM cards c
+          WHERE c.holder_user_id = $1 AND c.company_id = $2 AND c.status IN ('ACTIVE', 'FROZEN')
           ORDER BY c.created_at DESC, c.id DESC
           LIMIT 1`,
         [holderUserId, companyId],
@@ -126,7 +133,7 @@ export function cardsRepository(db: Queryable) {
      * Keyset pagination: rows arriving between pages never shift the next page.
      * Page 1 (afterId = null) is also the overview's "latest transactions".
      */
-    async transactionsPage(cardId: string, limit: number, afterId: string | null): Promise<TransactionRow[]> {
+    async transactionsPage(cardId: string, limit: number, afterId: string | null): Promise<Transaction[]> {
       const { rows } = await db.query<TransactionDbRow>(
         `SELECT ${TRANSACTION_COLUMNS}
            FROM transactions t
@@ -155,13 +162,20 @@ export function cardsRepository(db: Queryable) {
     /**
      * Activates the card if the holder sent the right digits. One atomic statement:
      * Postgres re-checks the WHERE clause under the row lock, so concurrent requests
-     * cannot both pass the attempt limit (ADR 0008).
+     * cannot both pass the attempt limit (ADR 0008). The audit event is written by the
+     * same statement, so it exists exactly when the card changed.
      */
     async activateIfDigitsMatch(cardId: string, holderUserId: string, last4: string, maxAttempts: number) {
       const { rows } = await db.query<CardDbRow>(
-        `UPDATE cards c SET status = 'ACTIVE', activated_at = now()
-          WHERE ${ACTIVATABLE} AND c.last4 = $3
-          RETURNING ${CARD_COLUMNS}`,
+        `WITH activated AS (
+           UPDATE cards c SET status = 'ACTIVE', activated_at = now()
+            WHERE ${ACTIVATABLE} AND c.last4 = $3
+            RETURNING ${CARD_COLUMNS}
+         ), event AS (
+           INSERT INTO card_activation_events (card_id, user_id, outcome)
+           SELECT id, $2, 'activated' FROM activated
+         )
+         SELECT * FROM activated`,
         [cardId, holderUserId, last4, maxAttempts],
       );
       return rows[0] ? cardFromRow(rows[0]) : null;
@@ -170,13 +184,27 @@ export function cardsRepository(db: Queryable) {
     /** Counts a wrong attempt atomically and returns the new count, or null if the card is not activatable. */
     async recordFailedActivation(cardId: string, holderUserId: string, last4: string, maxAttempts: number) {
       const { rows } = await db.query<{ failed_activation_attempts: number }>(
-        `UPDATE cards c SET failed_activation_attempts = c.failed_activation_attempts + 1,
-                            last_failed_activation_at = now()
-          WHERE ${ACTIVATABLE} AND c.last4 <> $3
-          RETURNING c.failed_activation_attempts`,
+        `WITH failed AS (
+           UPDATE cards c SET failed_activation_attempts = c.failed_activation_attempts + 1,
+                              last_failed_activation_at = now()
+            WHERE ${ACTIVATABLE} AND c.last4 <> $3
+            RETURNING c.id, c.failed_activation_attempts
+         ), event AS (
+           INSERT INTO card_activation_events (card_id, user_id, outcome)
+           SELECT id, $2, 'wrong_digits' FROM failed
+         )
+         SELECT failed_activation_attempts FROM failed`,
         [cardId, holderUserId, last4, maxAttempts],
       );
       return rows[0]?.failed_activation_attempts ?? null;
+    },
+
+    /** An attempt on a locked card changes nothing, but support still needs to see it. */
+    async recordLockedActivationAttempt(cardId: string, holderUserId: string) {
+      await db.query(
+        `INSERT INTO card_activation_events (card_id, user_id, outcome) VALUES ($1, $2, 'locked')`,
+        [cardId, holderUserId],
+      );
     },
   };
 }

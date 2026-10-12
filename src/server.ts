@@ -3,11 +3,13 @@ import { loadConfig } from './config.js';
 import { createPool } from './db.js';
 
 const config = loadConfig();
-const pool = createPool(config.databaseUrl);
+const pool = createPool(config.databaseUrl, { max: config.dbPoolMax });
+let draining = false;
 const app = await buildApp({
   pool,
   config,
   now: () => new Date(),
+  isDraining: () => draining,
   logger: {
     level: config.logLevel,
     // Never write tokens to the logs.
@@ -33,14 +35,19 @@ for (const event of ['uncaughtException', 'unhandledRejection'] as const) {
 // Finish in-flight requests and close the pool on shutdown (e.g. a Kubernetes rollout).
 // Below Docker's 10 s stop grace period, so the timeout is logged before the process is killed.
 const SHUTDOWN_TIMEOUT_MS = 8_000;
+// On SIGTERM the load balancer may still send requests until its health check sees /health fail.
+// Keep serving them for a moment instead of refusing connections. Ctrl-C (SIGINT) skips the wait.
+const DRAIN_MS = 3_000;
 async function shutdown(signal: NodeJS.Signals) {
   app.log.info({ signal }, 'Shutting down');
+  draining = true;
   // A stuck request must not keep the process alive until the platform kills it without a log line.
   setTimeout(() => {
     app.log.error('Shutdown timed out');
     process.exit(1);
   }, SHUTDOWN_TIMEOUT_MS).unref();
   try {
+    if (signal === 'SIGTERM') await new Promise((resolve) => setTimeout(resolve, DRAIN_MS));
     await app.close();
     await pool.end();
     process.exit(0);

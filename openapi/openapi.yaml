@@ -29,8 +29,9 @@ info:
     Show it when `latestTransactions.totalCount` is larger than
     `latestTransactions.items.length`. The number is the difference.
 
-    Tapping it opens `GET /v1/cards/{cardId}/transactions`. That list starts
-    from the newest transaction, so the 3 already shown come first.
+    Tapping it opens `GET /v1/cards/{latestTransactions.cardId}/transactions`.
+    That list starts from the newest transaction, so the 3 already shown come
+    first.
 
     ### 4. "Activate card"
     Show the button when `actions.canActivateCard` is `true`.
@@ -46,20 +47,32 @@ info:
     Errors are RFC 9457 `application/problem+json`.
 
     **Never show `title` or `detail` to users.** They are English text for
-    developers and logs. Choose the user's text from the HTTP status, and from
-    extra fields such as `attemptsRemaining`.
+    developers and logs. Choose the user's text from the HTTP status, from
+    `type` when one status has several causes, and from extra fields such as
+    `attemptsRemaining`.
 
     | Status | Meaning | What the app does |
     |---|---|---|
-    | 400 | The request is malformed | A bug in the app. `errors` names every invalid field. For an invalid cursor: reload from the first page |
+    | 400 | The request is malformed | A bug in the app. When the request fails validation, `errors` names every invalid field. `type: /problems/invalid-cursor`: reload from the first page |
     | 401 | Token missing, invalid or expired | Sign the user in again |
     | 404 | Not found, or no access (the API does not say which) | On the screen: the user may have left the company. Reload the company list |
-    | 405 | The route does not take this method | A bug in the app. The `Allow` header lists the methods it takes |
-    | 409 | The card cannot be activated right now | Reload the screen; it shows the current state |
+    | 405 | The route does not take this method. Any route, so not listed per operation | A bug in the app. The `Allow` header lists the methods it takes |
+    | 409 | The card cannot be activated right now | Reload the screen; it shows the current state. `type: /problems/card-changed` means it is safe to try again at once |
     | 422 | Wrong activation digits | "Wrong digits, N attempts left", from `attemptsRemaining` |
     | 423 | Activation locked after 5 wrong attempts | Show the contact options from `support` |
-    | 429 | Too many attempts | Wait `Retry-After` seconds before the next try |
+    | 429 | Too many requests from this user | Wait `Retry-After` seconds before the next try |
     | 5xx | Server or database problem | "Something went wrong, try again", and retry with backoff |
+
+    `type` is `about:blank` unless the cause needs telling apart. Compare it
+    as a string:
+
+    | `type` | Status |
+    |---|---|
+    | `/problems/invalid-cursor` | 400 |
+    | `/problems/card-not-activatable` | 409 |
+    | `/problems/card-changed` | 409 |
+    | `/problems/wrong-activation-digits` | 422 |
+    | `/problems/activation-locked` | 423 |
 
     ## Formats
 
@@ -68,8 +81,10 @@ info:
     is 5 400 kr. Format it on the device:
 
     ```js
+    // The divisor comes from the currency: 100 for SEK, 1 for JPY.
+    const { maximumFractionDigits: digits } = new Intl.NumberFormat('sv-SE', { style: 'currency', currency }).resolvedOptions()
     new Intl.NumberFormat('sv-SE', { style: 'currency', currency, maximumFractionDigits: 0 })
-      .format(minor / 100) // "5 400 kr"
+      .format(minor / 10 ** digits) // "5 400 kr"
     ```
 
     **Timestamps** such as `occurredAt` are ISO 8601 in UTC. Show them in the
@@ -113,7 +128,7 @@ info:
     - **`Cache-Control: no-store`** is on every response. The data is personal,
       so no cache may keep it. Fetch again instead.
     - **`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`** are
-      on activation responses.
+      on every `/v1` response. Activation has a much lower limit than reading.
 
     ## Mock server
 
@@ -220,6 +235,7 @@ paths:
                   summary: Member of no company
                   value: { items: [] }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
@@ -236,6 +252,10 @@ paths:
         - **Which card:** the user's most recently created card in the company
           that is not `CLOSED`. `FROZEN` cards are shown so the user understands
           why the card does not work.
+        - **Replacement card:** while a new `INACTIVE` card waits for activation
+          and the old card is still in use, `card` is the new one (so the app
+          offers "Activate card"), but `spend` and `latestTransactions` come
+          from the card in use. `latestTransactions.cardId` says which card.
         - **No card:** if the user is a member but has no such card, `card`,
           `spend` and `latestTransactions` are `null`: show an empty state.
         - **Consistent numbers:** everything is read from one database
@@ -273,6 +293,7 @@ paths:
                       periodStart: '2026-10-01'
                       periodEnd: '2026-10-31'
                     latestTransactions:
+                      cardId: 01922f6e-8a10-7f00-a111-0c5e1d2b3a01
                       items:
                         - id: 01922f6e-a001-7000-8000-000000000003
                           merchant: Clas Ohlson
@@ -308,7 +329,44 @@ paths:
                       remaining: { minor: 500000, currency: SEK }
                       periodStart: '2026-10-01'
                       periodEnd: '2026-10-31'
-                    latestTransactions: { items: [], totalCount: 0 }
+                    latestTransactions: { cardId: 01922f6e-8a10-7f00-a111-0c5e1d2b3a02, items: [], totalCount: 0 }
+                    actions: { canActivateCard: true, activationBlockedReason: null }
+                    support: { phone: '+46 8 000 00 00', email: support@example.com, url: 'https://example.com/support' }
+                replacementCard:
+                  summary: Replacement waiting for activation, old card still in use
+                  value:
+                    company: { id: 01922f6e-7d1a-7c3e-9b2a-5d4e3f2a1b01, name: Company AB }
+                    card:
+                      id: 01922f6e-8a10-7f00-a111-0c5e1d2b3a03
+                      last4: null
+                      status: INACTIVE
+                      imageUrl: https://cdn.example.com/cards/black.png
+                    invoiceDue: null
+                    spend:
+                      spent: { minor: 460000, currency: SEK }
+                      limit: { minor: 1000000, currency: SEK }
+                      remaining: { minor: 540000, currency: SEK }
+                      periodStart: '2026-10-01'
+                      periodEnd: '2026-10-31'
+                    latestTransactions:
+                      cardId: 01922f6e-8a10-7f00-a111-0c5e1d2b3a01
+                      items:
+                        - id: 01922f6e-a001-7000-8000-000000000003
+                          merchant: Clas Ohlson
+                          amount: { minor: -95200, currency: SEK }
+                          status: PENDING
+                          occurredAt: '2026-10-12T07:41:00Z'
+                        - id: 01922f6e-a001-7000-8000-000000000002
+                          merchant: Circle K
+                          amount: { minor: 25000, currency: SEK }
+                          status: SETTLED
+                          occurredAt: '2026-10-10T15:02:00Z'
+                        - id: 01922f6e-a001-7000-8000-000000000001
+                          merchant: Bauhaus
+                          amount: { minor: -64900, currency: SEK }
+                          status: SETTLED
+                          occurredAt: '2026-10-08T11:20:00Z'
+                      totalCount: 57
                     actions: { canActivateCard: true, activationBlockedReason: null }
                     support: { phone: '+46 8 000 00 00', email: support@example.com, url: 'https://example.com/support' }
                 activationLocked:
@@ -327,7 +385,7 @@ paths:
                       remaining: { minor: 500000, currency: SEK }
                       periodStart: '2026-10-01'
                       periodEnd: '2026-10-31'
-                    latestTransactions: { items: [], totalCount: 0 }
+                    latestTransactions: { cardId: 01922f6e-8a10-7f00-a111-0c5e1d2b3a02, items: [], totalCount: 0 }
                     actions: { canActivateCard: false, activationBlockedReason: LOCKED }
                     support: { phone: '+46 8 000 00 00', email: support@example.com, url: 'https://example.com/support' }
                 frozenCard:
@@ -351,6 +409,7 @@ paths:
                       periodStart: '2026-10-01'
                       periodEnd: '2026-10-31'
                     latestTransactions:
+                      cardId: 01922f6e-8a10-7f00-a111-0c5e1d2b3a01
                       items:
                         - id: 01922f6e-a001-7000-8000-000000000004
                           merchant: Webhallen
@@ -373,6 +432,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
@@ -439,6 +499,7 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
@@ -486,6 +547,10 @@ paths:
       responses:
         '200':
           description: The card is active
+          headers:
+            X-RateLimit-Limit: { $ref: '#/components/headers/X-RateLimit-Limit' }
+            X-RateLimit-Remaining: { $ref: '#/components/headers/X-RateLimit-Remaining' }
+            X-RateLimit-Reset: { $ref: '#/components/headers/X-RateLimit-Reset' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Card' }
@@ -535,7 +600,10 @@ components:
       properties:
         minor:
           type: integer
-          description: Amount in the currency's minor unit (öre for SEK). 540000 = 5 400,00 kr
+          format: int64
+          description: |
+            Amount in the currency's minor unit (öre for SEK). 540000 = 5 400,00 kr.
+            Always within ±2^53, so a JavaScript number holds it exactly.
           example: 540000
         currency:
           type: string
@@ -559,8 +627,8 @@ components:
         - `ACTIVE`: in use.
         - `FROZEN`: temporarily blocked by Qred; purchases are declined. Explain
           this and point to support.
-        - `CLOSED`: no longer usable. Never returned by the overview; only seen
-          when a closed card's transactions are opened.
+        - `CLOSED`: no longer usable. Reserved: no endpoint returns a closed
+          card today. Its transactions stay readable by id.
 
     Card:
       type: object
@@ -652,8 +720,14 @@ components:
 
     LatestTransactions:
       type: object
-      required: [items, totalCount]
+      required: [cardId, items, totalCount]
       properties:
+        cardId:
+          type: string
+          format: uuid
+          description: |
+            The card these transactions are on. Open "N more" with this id. Usually
+            `card.id`; the old card's id while a replacement waits for activation.
         items:
           type: array
           maxItems: 3
@@ -662,7 +736,7 @@ components:
         totalCount:
           type: integer
           minimum: 0
-          description: All transactions on the card. "N more" = totalCount - items.length
+          description: All transactions on the card (`cardId`). "N more" = totalCount - items.length
 
     Actions:
       type: object
@@ -738,7 +812,10 @@ components:
         fields such as `attemptsRemaining`) to choose the user's text.
       required: [type, title, status]
       properties:
-        type: { type: string, example: 'about:blank' }
+        type:
+          type: string
+          example: 'about:blank'
+          description: '`about:blank`, or one of the problem types under "Showing errors to users"'
         title: { type: string, description: The HTTP reason phrase }
         status: { type: integer, description: Same as the HTTP status }
         detail: { type: string, description: 'What went wrong, for developers' }
@@ -746,7 +823,8 @@ components:
         errors:
           type: array
           description: |
-            On `400`: every invalid input at once, so the app can mark each field.
+            On `400` when the request fails validation, or has an invalid cursor:
+            every invalid input at once, so the app can mark each field.
             `message` is English for developers, like `detail`.
           items:
             type: object
@@ -767,6 +845,17 @@ components:
               minimum: 0
               maximum: 5
               description: Wrong attempts left before activation locks. At 0 the next attempt gets `423`.
+
+  headers:
+    X-RateLimit-Limit:
+      description: Requests this user may make to this endpoint per window
+      schema: { type: integer }
+    X-RateLimit-Remaining:
+      description: Requests left in the current window
+      schema: { type: integer }
+    X-RateLimit-Reset:
+      description: Seconds until the window starts over
+      schema: { type: integer }
 
   responses:
     BadRequest:
@@ -808,19 +897,19 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
-          example: { type: 'about:blank', title: Conflict, status: 409, detail: The card is FROZEN and cannot be activated, instance: /v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a01/activation }
+          example: { type: /problems/card-not-activatable, title: Conflict, status: 409, detail: The card is FROZEN and cannot be activated, instance: /v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a01/activation }
     WrongActivationDigits:
       description: The digits do not match the card. Show how many attempts are left.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ActivationProblem' }
-          example: { type: 'about:blank', title: Unprocessable Content, status: 422, detail: The digits do not match the card, instance: /v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a02/activation, attemptsRemaining: 4 }
+          example: { type: /problems/wrong-activation-digits, title: Unprocessable Content, status: 422, detail: The digits do not match the card, instance: /v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a02/activation, attemptsRemaining: 4 }
     ActivationLocked:
       description: Too many wrong attempts. Only support can unlock activation; show the options from `support`.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
-          example: { type: 'about:blank', title: Locked, status: 423, detail: 'Too many wrong attempts. Contact support to unlock activation.', instance: /v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a02/activation }
+          example: { type: /problems/activation-locked, title: Locked, status: 423, detail: 'Too many wrong attempts. Contact support to unlock activation.', instance: /v1/cards/01922f6e-8a10-7f00-a111-0c5e1d2b3a02/activation }
     PayloadTooLarge:
       description: The body is larger than 1 KiB. A bug in the app.
       content:
@@ -832,11 +921,14 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     TooManyRequests:
-      description: Too many attempts from this user. Wait `Retry-After` seconds before allowing another try.
+      description: Too many requests from this user. Wait `Retry-After` seconds before allowing another try.
       headers:
         Retry-After:
           description: Seconds until the user can try again
           schema: { type: integer }
+        X-RateLimit-Limit: { $ref: '#/components/headers/X-RateLimit-Limit' }
+        X-RateLimit-Remaining: { $ref: '#/components/headers/X-RateLimit-Remaining' }
+        X-RateLimit-Reset: { $ref: '#/components/headers/X-RateLimit-Reset' }
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
