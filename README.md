@@ -70,20 +70,82 @@ See [`db/migrations/001_init.sql`](db/migrations/001_init.sql).
 
 ## Architecture
 
+### One spec feeds everything
+
+```mermaid
+flowchart LR
+    spec["openapi/openapi.yaml<br/>the contract"]
+    spec --> glue["fastify-openapi-glue<br/>routes + validation"]
+    spec --> types["openapi-typescript<br/>src/generated/api.ts"]
+    spec --> prism["Prism<br/>mock for frontend"]
+    spec --> check["Contract check<br/>every test response"]
+    spec --> oasdiff["oasdiff<br/>blocks breaking PRs"]
+
+    glue --> handlers["handlers.ts<br/>HTTP in, HTTP out"]
+    types -.-> handlers
+    handlers --> services["overview · transactions · activation<br/>use cases"]
+    services --> domain["domain/*<br/>pure rules"]
+    services --> repos["repositories/*<br/>SQL"]
+    repos --> db[("PostgreSQL 18")]
 ```
-openapi/openapi.yaml ──► fastify-openapi-glue ──► routes + request/response validation
-        │                                               │
-        ├──► openapi-typescript ──► src/generated/api.ts (types used by the code)
-        └──► Prism ──► mock server for frontend         ▼
-                                                   src/handlers.ts      thin: HTTP in, service call, HTTP out
-                                                        ▼
-                                  src/overview.ts · src/transactions.ts · src/activation.ts   use cases
-                                                        ▼
-                                  src/domain/*          pure rules: spend period, activation, spend summary
-                                  src/repositories/*    SQL, one file per aggregate
-                                                        ▼
-                                                    PostgreSQL
+
+### Frontend and backend in parallel
+
+```mermaid
+flowchart LR
+    agree["Agree the spec<br/>together"] --> mock["Prism mock<br/>day one"]
+    agree --> build["Backend builds<br/>test-first"]
+    mock --> app["App builds the screen<br/>against the mock"]
+    build --> ci{"CI: contract check<br/>+ oasdiff"}
+    app --> swap["Point the app<br/>at the real API"]
+    ci --> swap
 ```
+
+### One request: the card overview
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App
+    participant API as Fastify
+    participant DB as PostgreSQL
+
+    App->>API: GET /v1/companies/{id}/card-overview<br/>Bearer token, X-Request-Id
+    API->>API: Validate against the spec (400)
+    API->>API: Verify JWT, subject = user id (401)
+    API->>DB: BEGIN REPEATABLE READ READ ONLY
+    API->>DB: Membership in the company?
+    alt not a member
+        API-->>App: 404 problem+json
+    else member
+        API->>DB: Card, spend this month, latest 3, total count, invoice
+        DB-->>API: One consistent snapshot
+        API->>API: Rules: remaining, canActivateCard, invoice by role
+        API-->>App: 200 CardOverview (checked against the spec in tests)
+    end
+    Note over App,API: Every response carries X-Request-Id, also on every log line
+```
+
+### Activating a card
+
+```mermaid
+flowchart TD
+    start(["POST /v1/cards/{id}/activation<br/>{ last4 }"]) --> rate{"Over the rate limit<br/>for this user?"}
+    rate -- yes --> r429["429 + Retry-After"]
+    rate -- no --> try["Atomic UPDATE:<br/>activate if INACTIVE,<br/>not locked, digits match"]
+    try -- row updated --> ok["200 card is ACTIVE"]
+    try -- no row --> fail["Atomic UPDATE:<br/>count a wrong attempt"]
+    fail -- row updated --> r422["422 + attemptsRemaining"]
+    fail -- no row --> look{"Why? Look up the card"}
+    look -- "not the holder's card" --> r404["404"]
+    look -- "ACTIVE, right digits" --> ok
+    look -- "5 wrong attempts" --> r423["423 locked, call support"]
+    look -- "FROZEN, CLOSED or<br/>ACTIVE with wrong digits" --> r409["409"]
+```
+
+Each step is one SQL statement, so twelve parallel guesses still get exactly five tries.
+
+### Files
 
 ```
 src/
