@@ -1,0 +1,5 @@
+extends:
+  - recommended
+rules:
+  info-license: off
+  no-server-example.com: off # local-only servers are intended for this case
