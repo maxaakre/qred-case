@@ -3,6 +3,6 @@ dist
 coverage
 .git
 .github
-.env
+.env*
 *.md
 !README.md

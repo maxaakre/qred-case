@@ -45,12 +45,14 @@ describe('HTTP conventions on every response', () => {
     expect(res.headers['content-security-policy']).toBe("default-src 'none';frame-ancestors 'none'");
   });
 
-  it('lets the docs page load its own scripts and call the API and the mock, nothing else', async () => {
+  it('lets the docs page load its own scripts and call the API, nothing else', async () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/docs/' });
     const csp = String(res.headers['content-security-policy']);
 
     expect(csp).toContain("script-src 'self'");
-    expect(csp).toContain("connect-src 'self' http://localhost:4010");
+    // The local mock server is only allowed in demo mode (see demo.test.ts).
+    expect(csp).toContain("connect-src 'self';");
+    expect(csp).toContain("style-src 'self' 'sha256-");
     expect(csp).toContain("frame-ancestors 'none'");
   });
 

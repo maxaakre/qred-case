@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { truncateAll } from '../scripts/seed.js';
-import type { CardStatus, Role } from '../src/domain/types.js';
-import type { TransactionRow } from '../src/repositories/cards.js';
+import type { CardStatus, Role, TransactionStatus } from '../src/domain/types.js';
 
 /** Inserts test data with sensible defaults. Every helper returns the new row's id. */
 export function fixtures(pool: pg.Pool) {
@@ -76,7 +75,7 @@ export function fixtures(pool: pg.Pool) {
     async transaction(cardId: string, opts: {
       amount: number;
       occurredAt: string;
-      status?: TransactionRow['status'];
+      status?: TransactionStatus;
       merchant?: string;
       currency?: string;
     }) {

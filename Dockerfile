@@ -17,5 +17,7 @@ COPY --from=build /app/dist ./dist
 # Not root: a compromised process cannot change the image's files.
 USER node
 EXPOSE 3000
+# Readiness outside compose too (plain docker, ECS): /health checks the database as well.
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD wget -qO- http://localhost:3000/health || exit 1
 # Node runs as PID 1 and gets SIGTERM directly, so the graceful shutdown in server.ts runs.
 CMD ["node", "dist/src/server.js"]

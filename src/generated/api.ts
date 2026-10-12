@@ -87,6 +87,10 @@ export interface paths {
          *     - **Which card:** the user's most recently created card in the company
          *       that is not `CLOSED`. `FROZEN` cards are shown so the user understands
          *       why the card does not work.
+         *     - **Replacement card:** while a new `INACTIVE` card waits for activation
+         *       and the old card is still in use, `card` is the new one (so the app
+         *       offers "Activate card"), but `spend` and `latestTransactions` come
+         *       from the card in use. `latestTransactions.cardId` says which card.
          *     - **No card:** if the user is a member but has no such card, `card`,
          *       `spend` and `latestTransactions` are `null`: show an empty state.
          *     - **Consistent numbers:** everything is read from one database
@@ -175,7 +179,9 @@ export interface components {
         /** @description An exact amount. Format on the device, never do arithmetic on floats. */
         Money: {
             /**
-             * @description Amount in the currency's minor unit (öre for SEK). 540000 = 5 400,00 kr
+             * Format: int64
+             * @description Amount in the currency's minor unit (öre for SEK). 540000 = 5 400,00 kr.
+             *     Always within ±2^53, so a JavaScript number holds it exactly.
              * @example 540000
              */
             minor: number;
@@ -197,8 +203,8 @@ export interface components {
          *     - `ACTIVE`: in use.
          *     - `FROZEN`: temporarily blocked by Qred; purchases are declined. Explain
          *       this and point to support.
-         *     - `CLOSED`: no longer usable. Never returned by the overview; only seen
-         *       when a closed card's transactions are opened.
+         *     - `CLOSED`: no longer usable. Reserved: no endpoint returns a closed
+         *       card today. Its transactions stay readable by id.
          * @enum {string}
          */
         CardStatus: "INACTIVE" | "ACTIVE" | "FROZEN" | "CLOSED";
@@ -288,9 +294,15 @@ export interface components {
             occurredAt: string;
         };
         LatestTransactions: {
+            /**
+             * Format: uuid
+             * @description The card these transactions are on. Open "N more" with this id. Usually
+             *     `card.id`; the old card's id while a replacement waits for activation.
+             */
+            cardId: string;
             /** @description The 3 newest transactions, newest first */
             items: components["schemas"]["Transaction"][];
-            /** @description All transactions on the card. "N more" = totalCount - items.length */
+            /** @description All transactions on the card (`cardId`). "N more" = totalCount - items.length */
             totalCount: number;
         };
         /** @description What the user may do. Decided by the backend; the app has no rules of its own. */
@@ -356,7 +368,10 @@ export interface components {
          *     fields such as `attemptsRemaining`) to choose the user's text.
          */
         Problem: {
-            /** @example about:blank */
+            /**
+             * @description `about:blank`, or one of the problem types under "Showing errors to users"
+             * @example about:blank
+             */
             type: string;
             /** @description The HTTP reason phrase */
             title: string;
@@ -367,7 +382,8 @@ export interface components {
             /** @description The request path */
             instance?: string;
             /**
-             * @description On `400`: every invalid input at once, so the app can mark each field.
+             * @description On `400` when the request fails validation, or has an invalid cursor:
+             *     every invalid input at once, so the app can mark each field.
              *     `message` is English for developers, like `detail`.
              */
             errors?: {
@@ -467,7 +483,7 @@ export interface components {
             content: {
                 /**
                  * @example {
-                 *       "type": "about:blank",
+                 *       "type": "/problems/card-not-activatable",
                  *       "title": "Conflict",
                  *       "status": 409,
                  *       "detail": "The card is FROZEN and cannot be activated",
@@ -485,7 +501,7 @@ export interface components {
             content: {
                 /**
                  * @example {
-                 *       "type": "about:blank",
+                 *       "type": "/problems/wrong-activation-digits",
                  *       "title": "Unprocessable Content",
                  *       "status": 422,
                  *       "detail": "The digits do not match the card",
@@ -504,7 +520,7 @@ export interface components {
             content: {
                 /**
                  * @example {
-                 *       "type": "about:blank",
+                 *       "type": "/problems/activation-locked",
                  *       "title": "Locked",
                  *       "status": 423,
                  *       "detail": "Too many wrong attempts. Contact support to unlock activation.",
@@ -532,11 +548,14 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Too many attempts from this user. Wait `Retry-After` seconds before allowing another try. */
+        /** @description Too many requests from this user. Wait `Retry-After` seconds before allowing another try. */
         TooManyRequests: {
             headers: {
                 /** @description Seconds until the user can try again */
                 "Retry-After"?: number;
+                "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
                 [name: string]: unknown;
             };
             content: {
@@ -603,7 +622,14 @@ export interface components {
         CardId: string;
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description Requests this user may make to this endpoint per window */
+        "X-RateLimit-Limit": number;
+        /** @description Requests left in the current window */
+        "X-RateLimit-Remaining": number;
+        /** @description Seconds until the window starts over */
+        "X-RateLimit-Reset": number;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -676,6 +702,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
@@ -704,6 +731,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
@@ -737,6 +765,7 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
@@ -770,6 +799,9 @@ export interface operations {
             /** @description The card is active */
             200: {
                 headers: {
+                    "X-RateLimit-Limit": components["headers"]["X-RateLimit-Limit"];
+                    "X-RateLimit-Remaining": components["headers"]["X-RateLimit-Remaining"];
+                    "X-RateLimit-Reset": components["headers"]["X-RateLimit-Reset"];
                     [name: string]: unknown;
                 };
                 content: {

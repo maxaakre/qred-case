@@ -42,10 +42,38 @@ describe('rate limit on POST /v1/cards/{cardId}/activation', () => {
   it('does not count requests without a valid token', async () => {
     const { user, card } = await inactiveCardHolder();
     for (let i = 0; i <= MAX; i++) {
-      await ctx.app.inject({ method: 'POST', url: `/v1/cards/${card}/activation`, payload: { last4: '0000' } });
+      const anonymous = await ctx.app.inject({ method: 'POST', url: `/v1/cards/${card}/activation`, payload: { last4: '0000' } });
+      expect(anonymous.statusCode).toBe(401);
     }
 
     const res = await activate(user, card, '4821');
+
+    expect(res.statusCode).toBe(200);
+  });
+});
+
+describe('rate limit on reading', () => {
+  const MAX = 2;
+  const ctx = useTestContext({ readRateLimit: { max: MAX } });
+
+  it('returns 429 once one user has made too many requests, and says how many are left before that', async () => {
+    const user = await ctx.fx.user();
+    const first = await ctx.get(user, '/v1/me/companies');
+    await ctx.get(user, '/v1/me/companies');
+
+    const res = await ctx.get(user, '/v1/me/companies');
+
+    expect(first.headers['x-ratelimit-limit']).toBe(String(MAX));
+    expect(first.headers['x-ratelimit-remaining']).toBe(String(MAX - 1));
+    expect(res.statusCode).toBe(429);
+    expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+  });
+
+  it('counts per user', async () => {
+    const busy = await ctx.fx.user();
+    for (let i = 0; i <= MAX; i++) await ctx.get(busy, '/v1/me/companies');
+
+    const res = await ctx.get(await ctx.fx.user(), '/v1/me/companies');
 
     expect(res.statusCode).toBe(200);
   });

@@ -1,4 +1,4 @@
-import type { ActivationBlockedReason, Card } from './types.js';
+import type { ActivationBlockedReason, Card, Role } from './types.js';
 
 /** Wrong last4 attempts allowed before activation locks (ADR 0008). */
 export const MAX_ACTIVATION_ATTEMPTS = 5;
@@ -13,6 +13,11 @@ export function activationBlockedReason(card: Card | null): ActivationBlockedRea
   if (card.status !== 'INACTIVE') return 'NOT_INACTIVE';
   if (card.failedActivationAttempts >= MAX_ACTIVATION_ATTEMPTS) return 'LOCKED';
   return null;
+}
+
+/** Only owners and admins see the company's invoices (CONTEXT.md, Role). */
+export function canSeeInvoices(role: Role): boolean {
+  return role === 'OWNER' || role === 'ADMIN';
 }
 
 /** Remaining spend never goes below zero, and spent never goes below zero (see CONTEXT.md). */

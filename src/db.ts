@@ -8,14 +8,18 @@ pg.types.setTypeParser(pg.types.builtins.DATE, (value) => value);
  * The app's connection pool. A query that runs too long, or a transaction left open, is
  * cancelled by Postgres, so one slow request cannot hold a connection the others need.
  */
-export function createPool(connectionString: string, { statementTimeoutMs = 5_000 } = {}) {
+export function createPool(connectionString: string, { statementTimeoutMs = 5_000, max = 10 } = {}) {
   return new pg.Pool({
     connectionString,
-    max: 10,
+    max,
     statement_timeout: statementTimeoutMs,
     idle_in_transaction_session_timeout: 10_000,
     // Fail fast when the database is unreachable instead of queueing requests.
     connectionTimeoutMillis: 5_000,
+    // Reconnect now and then, so a failover or rotated credentials reach every connection.
+    maxLifetimeSeconds: 1_800,
+    // Tells this API's sessions apart in pg_stat_activity.
+    application_name: 'card-overview-api',
   });
 }
 

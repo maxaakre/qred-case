@@ -19,6 +19,8 @@ describe('loadConfig', () => {
       jwt: { secret: valid.JWT_SECRET, issuer: 'card-overview-dev', audience: 'card-overview-api', maxAgeSeconds: 3600 },
       support: { phone: valid.SUPPORT_PHONE, email: valid.SUPPORT_EMAIL, url: valid.SUPPORT_URL },
       activationRateLimit: { max: 10, windowSeconds: 900 },
+      readRateLimit: { max: 300 },
+      dbPoolMax: 10,
       // Demo shortcuts are off unless asked for.
       demoMode: false,
       docsEnabled: true,
@@ -29,6 +31,21 @@ describe('loadConfig', () => {
     const config = loadConfig({ ...valid, PORT: '8080', DEMO_MODE: 'true', DOCS_ENABLED: 'false', ACTIVATION_RATE_LIMIT_MAX: '3' });
 
     expect(config).toMatchObject({ port: 8080, demoMode: true, docsEnabled: false, activationRateLimit: { max: 3 } });
+  });
+
+  describe('in production', () => {
+    const production = { ...valid, NODE_ENV: 'production', JWT_ISSUER: 'https://id.example.com', JWT_AUDIENCE: 'card-api' };
+
+    it('refuses to start without an explicit issuer and audience', () => {
+      expect(() => loadConfig({ ...production, JWT_ISSUER: undefined, JWT_AUDIENCE: undefined })).toThrow(
+        /JWT_ISSUER: required in production[\s\S]*JWT_AUDIENCE: required in production/,
+      );
+    });
+
+    it('keeps /docs off unless asked for', () => {
+      expect(loadConfig(production).docsEnabled).toBe(false);
+      expect(loadConfig({ ...production, DOCS_ENABLED: 'true' }).docsEnabled).toBe(true);
+    });
   });
 
   it('refuses to start with a weak JWT secret', () => {

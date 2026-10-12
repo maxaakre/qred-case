@@ -1,7 +1,9 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEMO } from '../src/demo.js';
 import { seed } from '../scripts/seed.js';
-import { createTestContext, NOW, type TestContext } from './context.js';
+import { createTestContext, NOW, ownerDatabaseUrl, type TestContext } from './context.js';
 
 /** The demo must show exactly what the app view shows. */
 describe('demo seed', () => {
@@ -33,3 +35,16 @@ describe('demo seed', () => {
     expect(body.actions.canActivateCard).toBe(true);
   });
 });
+
+/** The production image ships the seed for the local demo; there it must not empty a real database. */
+describe('the seed script in production', () => {
+  const run = (env: Record<string, string>) =>
+    promisify(execFile)(process.execPath, ['--import', 'tsx', 'scripts/seed.ts'], {
+      env: { PATH: process.env.PATH, DATABASE_URL: ownerDatabaseUrl, ...env },
+    });
+
+  it('refuses to run, before it touches the database', async () => {
+    await expect(run({ NODE_ENV: 'production' })).rejects.toMatchObject({ code: 1, stderr: expect.stringMatching(/ALLOW_DEMO_SEED/) });
+  });
+});
+

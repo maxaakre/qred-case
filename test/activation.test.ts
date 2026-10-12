@@ -39,6 +39,7 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     const res = await activate(user, card, { last4: '0000' });
 
     expect(res.statusCode).toBe(409);
+    expect(res.json().type).toBe('/problems/card-not-activatable');
   });
 
   it.each(['FROZEN', 'CLOSED'] as const)('returns 409 for a %s card', async (status) => {
@@ -55,7 +56,7 @@ describe('POST /v1/cards/{cardId}/activation', () => {
     const res = await activate(user, card, { last4: '0000' });
 
     expect(res.statusCode).toBe(422);
-    expect(res.json()).toMatchObject({ status: 422, attemptsRemaining: 4 });
+    expect(res.json()).toMatchObject({ type: '/problems/wrong-activation-digits', status: 422, attemptsRemaining: 4 });
   });
 
   it('locks activation after 5 wrong attempts, even for the right digits', async () => {
@@ -67,6 +68,7 @@ describe('POST /v1/cards/{cardId}/activation', () => {
 
     expect(remaining).toEqual([4, 3, 2, 1, 0]);
     expect(res.statusCode).toBe(423);
+    expect(res.json().type).toBe('/problems/activation-locked');
     expect((await overview(user, company)).actions.activationBlockedReason).toBe('LOCKED');
   });
 

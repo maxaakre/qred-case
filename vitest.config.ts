@@ -2,6 +2,8 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    // Only the TypeScript tests: a compiled copy in dist/ would run every test twice.
+    include: ['test/**/*.test.ts'],
     globalSetup: ['test/global-setup.ts'],
     // Tests share one Postgres container and truncate between tests.
     fileParallelism: false,

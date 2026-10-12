@@ -29,3 +29,19 @@ describe('when the database is unreachable', () => {
     expect(res.headers['retry-after']).toBe('5');
   });
 });
+
+describe('while shutting down', () => {
+  const ctx = useTestContext({}, { reset: false, isDraining: () => true });
+
+  it('fails /health at once, so the load balancer stops sending traffic before the server closes', async () => {
+    const res = await ctx.app.inject({ method: 'GET', url: '/health' });
+
+    expect(res.statusCode).toBe(503);
+  });
+
+  it('still answers /live, so the platform does not kill it before it has drained', async () => {
+    const res = await ctx.app.inject({ method: 'GET', url: '/live' });
+
+    expect(res.statusCode).toBe(200);
+  });
+});

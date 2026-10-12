@@ -19,6 +19,8 @@ export const testConfig: Config = {
   support: { phone: '+46 8 000 00 00', email: 'support@example.com', url: 'https://example.com/support' },
   // High enough that only the rate-limit tests hit it.
   activationRateLimit: { max: 1000, windowSeconds: 900 },
+  readRateLimit: { max: 1000 },
+  dbPoolMax: 10,
 };
 
 /** The schema owner: for test data and migrations, never for the app under test. */
@@ -49,6 +51,10 @@ export interface AppOptions {
   /** The app's pool; by default one with the app's own, limited database login. */
   appPool?: pg.Pool;
   logger?: FastifyServerOptions['logger'];
+  /** The app's "now"; NOW by default. */
+  now?: Date;
+  /** Whether shutdown has started; never by default. */
+  isDraining?: () => boolean;
 }
 
 export async function createTestContext(overrides: Partial<Config> = {}, options: AppOptions = {}): Promise<TestContext> {
@@ -57,7 +63,8 @@ export async function createTestContext(overrides: Partial<Config> = {}, options
   const app = await buildApp({
     pool: appPool,
     config: { ...testConfig, ...overrides },
-    now: () => NOW,
+    now: () => options.now ?? NOW,
+    ...(options.isDraining && { isDraining: options.isDraining }),
     ...(options.logger !== undefined && { logger: options.logger }),
   });
   checkEveryResponse(app);

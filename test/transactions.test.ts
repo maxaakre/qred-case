@@ -35,6 +35,37 @@ describe('GET /v1/cards/{cardId}/transactions', () => {
     expect(page3.nextCursor).toBeNull();
   });
 
+  it('ends with no cursor when the last page is exactly full', async () => {
+    const { user, card } = await cardWithTransactions(4);
+
+    const page1 = (await list(user, card, '?limit=2')).json();
+    const page2 = (await list(user, card, `?limit=2&cursor=${page1.nextCursor}`)).json();
+
+    expect(merchants(page2)).toEqual(['Shop 2', 'Shop 1']);
+    expect(page2.nextCursor).toBeNull();
+  });
+
+  it('returns an empty page for a card with no transactions', async () => {
+    const { user, card } = await cardWithTransactions(0);
+
+    const res = await list(user, card);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ items: [], nextCursor: null });
+  });
+
+  it('still lists the transactions of a closed card', async () => {
+    const { user, company } = await ctx.fx.memberOf();
+    const card = await ctx.fx.card({ holder: user, company, status: 'CLOSED' });
+    await ctx.fx.transaction(card, { amount: -100, occurredAt: '2026-10-01T09:00:00Z', merchant: 'Old shop' });
+    await ctx.fx.transaction(card, { amount: -200, occurredAt: '2026-10-02T09:00:00Z', merchant: 'Last shop' });
+
+    const res = await list(user, card);
+
+    expect(res.statusCode).toBe(200);
+    expect(merchants(res.json())).toEqual(['Last shop', 'Old shop']);
+  });
+
   it('defaults to 20 per page', async () => {
     const { user, card } = await cardWithTransactions(21);
 
@@ -56,15 +87,19 @@ describe('GET /v1/cards/{cardId}/transactions', () => {
 
   it('keeps a stable order for transactions at the same instant', async () => {
     const { user, card } = await cardWithTransactions(0);
+    const ids: string[] = [];
     for (let i = 0; i < 3; i++) {
-      await ctx.fx.transaction(card, { amount: -1, occurredAt: '2026-10-05T12:00:00Z', merchant: `Same ${i}` });
+      ids.push(await ctx.fx.transaction(card, { amount: -1, occurredAt: '2026-10-05T12:00:00Z', merchant: `Same ${i}` }));
     }
 
     const page1 = (await list(user, card, '?limit=2')).json();
     const page2 = (await list(user, card, `?limit=2&cursor=${page1.nextCursor}`)).json();
+    const page1Again = (await list(user, card, '?limit=2')).json();
 
-    const all = [...merchants(page1), ...merchants(page2)];
-    expect(new Set(all).size).toBe(3);
+    const idsOf = (body: { items: { id: string }[] }) => body.items.map((t) => t.id);
+    // Same instant: the id breaks the tie, highest first.
+    expect([...idsOf(page1), ...idsOf(page2)]).toEqual([...ids].sort().reverse());
+    expect(idsOf(page1Again)).toEqual(idsOf(page1));
   });
 
   it("returns 404 for a colleague's card", async () => {
@@ -112,5 +147,10 @@ describe('GET /v1/cards/{cardId}/transactions', () => {
     const res = await list(a.user, otherCard, `?cursor=${page.nextCursor}`);
 
     expect(res.statusCode).toBe(400);
+    // Its own type, so the app knows to reload from the first page without reading `detail`.
+    expect(res.json()).toMatchObject({
+      type: '/problems/invalid-cursor',
+      errors: [{ in: 'query', field: 'cursor', message: 'is invalid or expired' }],
+    });
   });
 });

@@ -29,6 +29,17 @@ describe('activation audit log', () => {
     expect(rows[0].last_failed_activation_at).toBeInstanceOf(Date);
   });
 
+  it('refuses a locked card with 423, and logs the attempt as a warning', async () => {
+    const { user, card } = await ctx.fx.cardHolder({ failedActivationAttempts: 5 });
+    log.lines.length = 0;
+
+    const res = await ctx.activate(user, card, { last4: '4821' });
+
+    expect(res.statusCode).toBe(423);
+    expect(res.json()).toMatchObject({ status: 423, title: 'Locked' });
+    expect(events()).toMatchObject([{ outcome: 'locked', cardId: card, userId: user, level: 40 }]);
+  });
+
   it('logs a successful activation', async () => {
     const { user, card } = await ctx.fx.cardHolder();
     log.lines.length = 0;
@@ -36,5 +47,24 @@ describe('activation audit log', () => {
     await ctx.activate(user, card, { last4: '4821' });
 
     expect(events()).toMatchObject([{ outcome: 'activated', cardId: card, level: 30 }]);
+  });
+
+  it('stores every outcome in card_activation_events, written with the card change itself', async () => {
+    const { user, card } = await ctx.fx.cardHolder();
+    const locked = await ctx.fx.cardHolder({ failedActivationAttempts: 5 });
+
+    await ctx.activate(user, card, { last4: '0000' });
+    await ctx.activate(user, card, { last4: '4821' });
+    await ctx.activate(user, card, { last4: '4821' }); // a retry changes nothing, so it is no event
+    await ctx.activate(locked.user, locked.card, { last4: '4821' });
+
+    const { rows } = await ctx.pool.query(
+      'SELECT card_id, user_id, outcome FROM card_activation_events ORDER BY occurred_at, id',
+    );
+    expect(rows).toEqual([
+      { card_id: card, user_id: user, outcome: 'wrong_digits' },
+      { card_id: card, user_id: user, outcome: 'activated' },
+      { card_id: locked.card, user_id: locked.user, outcome: 'locked' },
+    ]);
   });
 });

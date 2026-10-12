@@ -54,6 +54,12 @@ describe('demo tokens, DEMO_MODE on', () => {
     expect(res.headers['content-type']).toContain('application/problem+json');
   });
 
+  it('lets the docs page call the local mock server, so "Try it out" works against Prism', async () => {
+    const res = await ctx.app.inject({ method: 'GET', url: '/docs/' });
+
+    expect(res.headers['content-security-policy']).toContain("connect-src 'self' http://localhost:4010");
+  });
+
   it('shows the endpoint in the docs, without a lock, so it can be called before Authorize', async () => {
     const spec = (await ctx.app.inject({ method: 'GET', url: '/docs/json' })).json();
 
