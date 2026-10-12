@@ -77,10 +77,20 @@ export function withDemoDocs(spec: Readonly<Record<string, unknown>>): Record<st
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const docs: any = structuredClone(spec);
 
+  // Every call that needs a token can run as a chosen demo user, without touching
+  // Authorize. The page turns this header into a token (requestInterceptor below); the
+  // server never sees it.
+  for (const operations of Object.values<Record<string, { security?: unknown[]; parameters?: unknown[] }>>(docs.paths)) {
+    for (const operation of Object.values(operations)) {
+      if (operation.security?.length === 0) continue; // public, like /health
+      operation.parameters = [demoUserParameter, ...(operation.parameters ?? [])];
+    }
+  }
+
   docs.tags = [
     {
       name: 'Demo',
-      description: 'Start here. Execute `POST /demo/token` and you are signed in: the locks close. Run it again with `erik` to try activation.',
+      description: 'You are signed in as `anna` when the page opens (the locks are closed). Execute `POST /demo/token` with `erik` to switch user and try activation.',
     },
     ...(docs.tags ?? []),
   ];
@@ -91,11 +101,12 @@ export function withDemoDocs(spec: Readonly<Record<string, unknown>>): Record<st
 
   const activation = docs.paths['/v1/cards/{cardId}/activation'].post;
   activation.parameters = [
+    { ...demoUserParameter, example: 'erik' },
     { ...docs.components.parameters.CardId, example: DEMO.erikCard, description: "Erik's inactive card (demo)" },
   ];
   activation.requestBody.content['application/json'].examples = {
     wrongDigits: { summary: 'Wrong digits: 422 and one attempt fewer', value: { last4: '0000' } },
-    eriksCard: { summary: "Erik's card: 200, the card becomes ACTIVE (sign in as erik)", value: { last4: '7310' } },
+    eriksCard: { summary: "Erik's card: 200, the card becomes ACTIVE", value: { last4: '7310' } },
   };
   return docs;
 }
@@ -111,8 +122,8 @@ interface DemoWindow {
 }
 
 /**
- * Swagger UI settings in demo mode: when POST /demo/token succeeds, sign in with the
- * returned token, so the flow is "Execute" and go, with nothing to copy into Authorize.
+ * Swagger UI settings in demo mode: the docs open signed in as anna, and POST /demo/token
+ * switches user by signing in with the returned token. Nothing to copy into Authorize.
  * @fastify/swagger-ui writes these functions into the page as source, so they must not
  * use anything from this module.
  */
@@ -131,6 +142,35 @@ export const demoDocsUiConfig: FastifySwaggerUiConfigOptions = {
       };
     },
   ],
+  // Keeps the sign-in across reloads. Demo mode only: these tokens reach only the demo users.
+  persistAuthorization: true,
+  // When the docs have loaded, sign in as anna, unless a sign-in was kept from before.
+  onComplete: function () {
+    if (localStorage.getItem('authorized')) return;
+    fetch('/demo/token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ user: 'anna' }),
+    })
+      .then((res) => res.json())
+      .then((body: { token: string }) => (window as DemoWindow).demoSwagger?.preauthorizeApiKey('bearerAuth', body.token));
+  },
+  // X-Demo-User on a call becomes that user's token, for that call only.
+  requestInterceptor: function (req) {
+    const user = req.headers['X-Demo-User'];
+    if (!user) return req;
+    delete req.headers['X-Demo-User'];
+    return fetch('/demo/token', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ user }),
+    })
+      .then((res) => res.json())
+      .then((body: { token: string }) => {
+        req.headers.Authorization = `Bearer ${body.token}`;
+        return req;
+      });
+  },
   responseInterceptor: function (res) {
     const token = res.body?.token;
     if (res.ok && res.url.endsWith('/demo/token') && typeof token === 'string') {
@@ -138,6 +178,14 @@ export const demoDocsUiConfig: FastifySwaggerUiConfigOptions = {
     }
     return res;
   },
+};
+
+const demoUserParameter = {
+  name: 'X-Demo-User',
+  in: 'header',
+  required: false,
+  description: 'Demo mode: run this call as this user. Empty uses Authorize.',
+  schema: { type: 'string', enum: DEMO_USER_NAMES },
 };
 
 const demoTokenOperation = {

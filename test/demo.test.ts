@@ -30,6 +30,7 @@ describe('demo tokens, DEMO_MODE off (the default)', () => {
 
     expect(spec.paths['/demo/token']).toBeUndefined();
     expect(JSON.stringify(spec)).not.toContain(DEMO.companyAb);
+    expect(JSON.stringify(spec)).not.toContain('X-Demo-User');
   });
 });
 
@@ -74,12 +75,44 @@ describe('demo tokens, DEMO_MODE on', () => {
     expect(page.body).toContain('/demo/token');
   });
 
+  it('opens the docs already signed in as anna, and keeps the sign-in across reloads', async () => {
+    const page = await ctx.app.inject({ method: 'GET', url: '/docs/static/swagger-initializer.js' });
+
+    expect(page.body).toMatch(/fetch\(["']\/demo\/token["']/);
+    expect(page.body).toMatch(/"persistAuthorization":true/);
+  });
+
+  it('lets every call choose its own demo user, with erik ready for activation', async () => {
+    const spec = (await ctx.app.inject({ method: 'GET', url: '/docs/json' })).json();
+    const userParam = (path: string, method: string) =>
+      spec.paths[path][method].parameters.find((p: any) => p.name === 'X-Demo-User');
+
+    for (const [path, method] of [
+      ['/v1/me/companies', 'get'],
+      ['/v1/companies/{companyId}/card-overview', 'get'],
+      ['/v1/cards/{cardId}/transactions', 'get'],
+      ['/v1/cards/{cardId}/activation', 'post'],
+    ]) {
+      expect(userParam(path!, method!)).toMatchObject({ in: 'header', schema: { enum: ['anna', 'erik'] } });
+    }
+    expect(userParam('/v1/cards/{cardId}/activation', 'post').example).toBe('erik');
+    expect(spec.paths['/health'].get.parameters ?? []).toEqual([]);
+  });
+
+  it('never lets X-Demo-User sign anyone in on the server: the page turns it into a token', async () => {
+    const res = await ctx.app.inject({ method: 'GET', url: '/v1/me/companies', headers: { 'x-demo-user': 'anna' } });
+    const page = await ctx.app.inject({ method: 'GET', url: '/docs/static/swagger-initializer.js' });
+
+    expect(res.statusCode).toBe(401);
+    expect(page.body).toContain('X-Demo-User');
+  });
+
   it("prefills the demo ids, with Erik's inactive card for activation", async () => {
     const spec = (await ctx.app.inject({ method: 'GET', url: '/docs/json' })).json();
 
     expect(spec.components.parameters.CompanyId.example).toBe(DEMO.companyAb);
     expect(spec.components.parameters.CardId.example).toBe(DEMO.annaCard);
-    expect(spec.paths['/v1/cards/{cardId}/activation'].post.parameters[0]).toMatchObject({
+    expect(spec.paths['/v1/cards/{cardId}/activation'].post.parameters.find((p: any) => p.name === 'cardId')).toMatchObject({
       name: 'cardId',
       in: 'path',
       example: DEMO.erikCard,

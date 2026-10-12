@@ -27,8 +27,9 @@ docker compose up
 
 Open http://localhost:3000/docs. Demo mode is on in `docker compose` ([ADR 0009](docs/adr/0009-demo-tokens-outside-the-contract.md)), so everything happens in the browser:
 
-1. **Sign in.** Open **Demo → `POST /demo/token`**, keep `{"user": "anna"}` and click **Execute**. The page signs you in with the returned token: the locks close. Nothing to copy.
+1. **You are already signed in as Anna** when the page opens: the locks are closed, and the sign-in survives a reload.
 2. **Call the API.** Every operation is ready, with the demo ids filled in: open it and click **Execute**.
+3. **Run one call as someone else.** Every operation has an `X-Demo-User` field: pick `anna` or `erik`, and that call runs as that user. The page turns it into a token before sending; the server never sees the field. To switch user for every call, run **Demo → `POST /demo/token`** with `erik`.
 
 | Operation | What you see as Anna |
 |---|---|
@@ -36,7 +37,7 @@ Open http://localhost:3000/docs. Demo mode is on in `docker compose` ([ADR 0009]
 | `GET /v1/companies/{companyId}/card-overview` | The design: active card •••• 4821, 5 400 of 10 000 kr remaining, invoice due, 3 latest transactions of 57 |
 | `GET /v1/cards/{cardId}/transactions` | The first 20 transactions; pass `nextCursor` as `cursor` for the next page |
 
-3. **Activate a card.** Run step 1 again with `{"user": "erik"}`. Open `POST /v1/cards/{cardId}/activation` (Erik's card is filled in) and pick a body from **Examples**:
+4. **Activate a card.** Open `POST /v1/cards/{cardId}/activation`: Erik's card and `X-Demo-User: erik` are filled in. Pick a body from **Examples**:
 
 | Example | Result |
 |---|---|
