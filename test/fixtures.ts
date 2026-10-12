@@ -28,6 +28,57 @@ export function fixtures(pool: pg.Pool) {
         userId, companyId, role,
       ]);
     },
+
+    async card(opts: {
+      holder: string;
+      company: string;
+      status?: 'INACTIVE' | 'ACTIVE' | 'FROZEN' | 'CLOSED';
+      last4?: string;
+      creditLimit?: number;
+      spendLimit?: number;
+      failedActivationAttempts?: number;
+      createdAt?: string;
+    }) {
+      const id = randomUUID();
+      const status = opts.status ?? 'ACTIVE';
+      await pool.query(
+        `INSERT INTO cards (id, company_id, holder_user_id, last4, status, image_url,
+                            credit_limit_minor, spend_limit_minor, activated_at,
+                            failed_activation_attempts, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [
+          id, opts.company, opts.holder, opts.last4 ?? '4821', status, `https://cdn.example.com/cards/${id}.png`,
+          opts.creditLimit ?? 2_000_000, opts.spendLimit ?? 1_000_000,
+          status === 'INACTIVE' ? null : '2026-09-01T10:00:00Z',
+          opts.failedActivationAttempts ?? 0, opts.createdAt ?? new Date().toISOString(),
+        ],
+      );
+      return id;
+    },
+
+    async transaction(cardId: string, opts: {
+      amount: number;
+      occurredAt: string;
+      status?: 'PENDING' | 'SETTLED' | 'DECLINED';
+      merchant?: string;
+    }) {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO transactions (id, card_id, amount_minor, currency, merchant, status, occurred_at)
+         VALUES ($1, $2, $3, 'SEK', $4, $5, $6)`,
+        [id, cardId, opts.amount, opts.merchant ?? 'Merchant', opts.status ?? 'SETTLED', opts.occurredAt],
+      );
+      return id;
+    },
+
+    async invoice(companyId: string, opts: { amount: number; dueDate: string; status?: 'UNPAID' | 'PAID' }) {
+      const id = randomUUID();
+      await pool.query(
+        `INSERT INTO invoices (id, company_id, amount_minor, currency, due_date, status) VALUES ($1, $2, $3, 'SEK', $4, $5)`,
+        [id, companyId, opts.amount, opts.dueDate, opts.status ?? 'UNPAID'],
+      );
+      return id;
+    },
   };
 }
 

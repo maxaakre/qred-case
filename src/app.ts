@@ -12,6 +12,8 @@ const SPEC = fileURLToPath(new URL('../openapi/openapi.yaml', import.meta.url));
 export interface AppDeps {
   pool: pg.Pool;
   config: Config;
+  /** Injected so tests control "now" (spend period, overdue invoices). */
+  now: () => Date;
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {

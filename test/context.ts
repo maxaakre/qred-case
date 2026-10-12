@@ -13,6 +13,9 @@ export const testConfig: Config = {
   support: { phone: '+46 8 000 00 00', email: 'support@example.com', url: 'https://example.com/support' },
 };
 
+/** The tests' "now": Monday 12 October 2026, 10:00 in Stockholm. */
+export const NOW = new Date('2026-10-12T08:00:00Z');
+
 export interface TestContext {
   app: FastifyInstance;
   pool: pg.Pool;
@@ -29,7 +32,7 @@ function sign(secret: string, userId: string, expiresIn = '15m') {
 
 export async function createTestContext(): Promise<TestContext> {
   const pool = new pg.Pool({ connectionString: testConfig.databaseUrl });
-  const app = await buildApp({ pool, config: testConfig });
+  const app = await buildApp({ pool, config: testConfig, now: () => NOW });
   return {
     app,
     pool,

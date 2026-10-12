@@ -1,10 +1,10 @@
-import type pg from 'pg';
+import type { Queryable } from '../db.js';
 import type { components } from '../generated/api.js';
 
 type CompanySummary = components['schemas']['CompanySummary'];
 export type Role = 'OWNER' | 'ADMIN' | 'EMPLOYEE';
 
-export function companiesRepository(pool: pg.Pool) {
+export function companiesRepository(pool: Queryable) {
   return {
     async listForUser(userId: string): Promise<CompanySummary[]> {
       const { rows } = await pool.query<CompanySummary>(

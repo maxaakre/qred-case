@@ -1,14 +1,15 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { AppDeps } from './app.js';
 import type { components } from './generated/api.js';
-import { notFound } from './problem.js';
+import { cardOverviewService } from './overview.js';
 import { companiesRepository } from './repositories/companies.js';
 
 type Schemas = components['schemas'];
 
-/** One handler per operationId in openapi/openapi.yaml. */
-export function createHandlers({ pool, config }: AppDeps) {
+/** One handler per operationId in openapi/openapi.yaml. Handlers stay thin: HTTP in, service call, HTTP out. */
+export function createHandlers({ pool, config, now }: AppDeps) {
   const companies = companiesRepository(pool);
+  const overview = cardOverviewService(pool, config, now);
 
   return {
     async getHealth(_req: FastifyRequest, reply: FastifyReply) {
@@ -21,18 +22,7 @@ export function createHandlers({ pool, config }: AppDeps) {
     },
 
     async getCardOverview(req: FastifyRequest<{ Params: { companyId: string } }>): Promise<Schemas['CardOverview']> {
-      const membership = await companies.findMembership(req.userId, req.params.companyId);
-      // Same answer for "does not exist" and "not yours" (ADR 0005).
-      if (!membership) throw notFound('Company not found');
-      return {
-        company: membership.company,
-        card: null,
-        invoiceDue: null,
-        spend: null,
-        latestTransactions: null,
-        actions: { canActivateCard: false, activationBlockedReason: 'NO_CARD' },
-        support: config.support,
-      };
+      return overview.get(req.userId, req.params.companyId);
     },
   };
 }
