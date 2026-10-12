@@ -62,7 +62,7 @@ curl -X POST -H "Authorization: Bearer $ERIK" -H 'content-type: application/json
 See [`db/migrations/001_init.sql`](db/migrations/001_init.sql).
 
 - **Membership is the access boundary.** `company_members` decides what a user can see; the token only says who they are ([ADR 0006](docs/adr/0006-identity-in-token-access-in-database.md)).
-- **The database refuses invalid states**: spend limit above credit limit, an inactive card with an activation date, a zero-amount transaction.
+- **The database refuses invalid states**: spend limit above credit limit, an inactive card with an activation date, a zero-amount transaction, a transaction in another currency than its card (composite foreign key, migration 002).
 - **Indexes match the queries**: `(card_id, occurred_at DESC, id DESC)` serves both "latest 3" and pagination; a partial index covers only unpaid invoices.
 - **PostgreSQL 18** with time-ordered `uuidv7()` ids ([ADR 0003](docs/adr/0003-postgres.md)).
 
@@ -103,10 +103,10 @@ test/                HTTP tests against real Postgres, plus the contract checker
 - Pending and settled purchases count, refunds reduce spend, declined ones are ignored. Spent never goes below zero and remaining never goes below zero.
 - Invoices are visible to owners and admins only. Overdue the day after the due date, in Swedish time.
 - Pagination never repeats or skips rows when new transactions arrive; ties on the same timestamp are ordered by id; cursors from another card are rejected.
-- Activation requires the last 4 digits, hidden while the card is inactive. Wrong digits → **422** with attempts left; after 5 → **423** until support unlocks. Already active → **200** (safe to retry). Frozen or closed → **409** ([ADR 0008](docs/adr/0008-activation-proof-and-lockout.md)).
+- Activation requires the last 4 digits, hidden while the card is inactive. Wrong digits → **422** with attempts left; after 5 → **423** until support unlocks. Already active with the right digits → **200** (safe to retry); wrong digits on an active card, or a frozen or closed card → **409** ([ADR 0008](docs/adr/0008-activation-proof-and-lockout.md)).
 - Concurrent activation attempts cannot get extra guesses: the counter is one atomic `UPDATE`.
-- Unknown request fields are rejected, not silently dropped. Tokens with a non-uuid subject are rejected.
-- Database down → `/health` returns **503**. Unexpected errors return a generic 500 and are logged, never leaked.
+- Unknown request fields are rejected, not silently dropped. Non-JSON bodies get **415** instead of skipping validation. Tokens without an expiry or with a non-uuid subject are rejected.
+- Database down → `/health` returns **503**. A dropped idle connection is logged, not a crash; a failed transaction keeps its original error and the broken connection is discarded. Unexpected errors return a generic 500 and are logged, never leaked.
 
 ## Testing
 
