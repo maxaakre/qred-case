@@ -245,7 +245,7 @@ components:
         reduce spend, declined transactions are ignored. `spent` never goes
         below 0, so a refund for last month's purchase cannot push
         `remaining` above `limit`.
-      required: [spent, limit, remaining, periodStart, periodEnd]
+      required: [spent, limit, periodStart, periodEnd]
       properties:
         spent: { $ref: '#/components/schemas/Money' }
         limit: { $ref: '#/components/schemas/Money' }
