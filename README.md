@@ -105,6 +105,7 @@ test/                HTTP tests against real Postgres, plus the contract checker
 - Pagination never repeats or skips rows when new transactions arrive; ties on the same timestamp are ordered by id; cursors from another card are rejected.
 - Activation requires the last 4 digits, hidden while the card is inactive. Wrong digits → **422** with attempts left; after 5 → **423** until support unlocks. Already active with the right digits → **200** (safe to retry); wrong digits on an active card, or a frozen or closed card → **409** ([ADR 0008](docs/adr/0008-activation-proof-and-lockout.md)).
 - Concurrent activation attempts cannot get extra guesses: the counter is one atomic `UPDATE`.
+- Activation is also **rate limited per user** across all their cards (10 per 15 minutes by default) → **429** with `Retry-After`. It counts after the token check, so nobody can use up another user's attempts. The lockout protects one card; the rate limit protects the service.
 - Unknown request fields are rejected, not silently dropped. Non-JSON bodies get **415** instead of skipping validation. Tokens without an expiry or with a non-uuid subject are rejected.
 - Database down → `/health` returns **503**. A dropped idle connection is logged, not a crash; a failed transaction keeps its original error and the broken connection is discarded. Unexpected errors return a generic 500 and are logged, never leaked.
 
@@ -125,6 +126,8 @@ The tests were checked by breaking the code on purpose (counting declined transa
 
 CI runs lint, typecheck, spec validation (including that generated types are up to date) and tests on Node 26, the version in `.nvmrc`. Node 26 becomes LTS at the end of October 2026, so a service shipping now starts on the release with the longest support.
 
+On pull requests, [`oasdiff`](https://github.com/oasdiff/oasdiff) compares the spec with `main` and **fails on breaking changes** (a removed field, a field that became optional, a new required input), because the app already in users' phones would break. Adding fields and endpoints passes. This was verified with a test pull request that made `spend.remaining` optional.
+
 ## With more time
 
 **Product**
@@ -136,7 +139,7 @@ CI runs lint, typecheck, spec validation (including that generated types are up 
 
 **Platform**
 - Real identity provider (BankID via an OIDC provider) with short-lived tokens and refresh; asymmetric keys (RS256/ES256) so services can verify without the secret.
-- Rate limiting per user and per IP, especially on activation.
+- A shared rate-limit store (Redis) once there is more than one instance, and a per-IP limit at the edge (API Gateway or WAF) before requests reach the service.
 - Idempotency keys on POSTs for payments-style operations.
 - Observability: OpenTelemetry traces, RED metrics per route, alerts on 5xx and latency; correlation id from the app through the logs.
 - `ETag` / `Cache-Control` on the overview; push updates (SSE or push notifications) when a transaction arrives.
@@ -148,6 +151,7 @@ CI runs lint, typecheck, spec validation (including that generated types are up 
 - Read replica for the overview if read traffic dominates.
 
 **Process**
-- Contract tests in the frontend's CI too (e.g. against the Prism mock), and breaking-change detection on the spec (`oasdiff`) in pull requests.
+- Contract tests in the frontend's CI too (e.g. against the Prism mock).
+- A versioning policy for when a breaking change is truly needed: a new field next to the old one, deprecation, then removal once old app versions are gone.
 - Generate a typed client for the app from the same spec.
 - Generic resource endpoints (`/cards/{id}`, `/invoices`) once a second screen needs them.

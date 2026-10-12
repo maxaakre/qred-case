@@ -112,6 +112,7 @@ export interface paths {
          *     - Wrong digits return `422` with `attemptsRemaining`.
          *     - After 5 wrong attempts activation is locked (`423`) until support
          *       unlocks it.
+         *     - Rate limited per user across all cards (`429` with `Retry-After`).
          */
         post: operations["activateCard"];
         delete?: never;
@@ -321,6 +322,17 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Too many requests from this user. Wait `Retry-After` seconds. */
+        TooManyRequests: {
+            headers: {
+                /** @description Seconds until the user can try again */
+                "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description Database not reachable */
         ServiceUnavailable: {
             headers: {
@@ -476,6 +488,7 @@ export interface operations {
             415: components["responses"]["UnsupportedMediaType"];
             422: components["responses"]["WrongActivationDigits"];
             423: components["responses"]["ActivationLocked"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
 }

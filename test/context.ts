@@ -11,6 +11,8 @@ export const testConfig: Config = {
   databaseUrl: inject('databaseUrl'),
   jwtSecret: 'test-secret-test-secret-test-secret',
   support: { phone: '+46 8 000 00 00', email: 'support@example.com', url: 'https://example.com/support' },
+  // High enough that only the rate-limit tests hit it.
+  activationRateLimit: { max: 1000, windowSeconds: 900 },
 };
 
 /** The tests' "now": Monday 12 October 2026, 10:00 in Stockholm. */
@@ -30,9 +32,9 @@ export interface TestContext {
   close(): Promise<void>;
 }
 
-export async function createTestContext(): Promise<TestContext> {
+export async function createTestContext(overrides: Partial<Config> = {}): Promise<TestContext> {
   const pool = new pg.Pool({ connectionString: testConfig.databaseUrl });
-  const app = await buildApp({ pool, config: testConfig, now: () => NOW });
+  const app = await buildApp({ pool, config: { ...testConfig, ...overrides }, now: () => NOW });
   const bearer = async (userId: string) => ({
     authorization: `Bearer ${await signDevToken(testConfig.jwtSecret, userId)}`,
   });

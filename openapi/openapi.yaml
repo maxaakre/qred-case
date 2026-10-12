@@ -146,6 +146,9 @@ paths:
         - Wrong digits return `422` with `attemptsRemaining`.
         - After 5 wrong attempts activation is locked (`423`) until support
           unlocks it.
+        - Rate limited per user across all cards (`429` with `Retry-After`).
+      x-fastify-config:
+        rateLimit: {}
       parameters:
         - $ref: '#/components/parameters/CardId'
       requestBody:
@@ -171,6 +174,7 @@ paths:
         '422': { $ref: '#/components/responses/WrongActivationDigits' }
         '423': { $ref: '#/components/responses/ActivationLocked' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
 components:
   securitySchemes:
@@ -393,6 +397,15 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
     UnsupportedMediaType:
       description: The body is not application/json
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Too many requests from this user. Wait `Retry-After` seconds.
+      headers:
+        Retry-After:
+          description: Seconds until the user can try again
+          schema: { type: integer }
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
