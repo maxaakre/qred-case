@@ -205,6 +205,7 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 - Activation requires the last 4 digits, hidden while the card is inactive. Wrong digits → **422** with attempts left; after 5 → **423** until support unlocks. Already active with the right digits → **200** (safe to retry); wrong digits on an active card, or a frozen or closed card → **409** ([ADR 0008](docs/adr/0008-activation-proof-and-lockout.md)).
 - Concurrent activation attempts cannot get extra guesses: the counter is one atomic `UPDATE`.
 - Activation is also **rate limited per user** across all their cards (10 per 15 minutes by default) → **429** with `Retry-After`. It counts after the token check, so nobody can use up another user's attempts. The lockout protects one card; the rate limit protects the service.
+- Every response has `Cache-Control: no-store`, so no proxy or device cache keeps personal financial data.
 - Unknown request fields are rejected, not silently dropped. Non-JSON bodies get **415** instead of skipping validation. Tokens without an expiry or with a non-uuid subject are rejected.
 - Database down → `/health` returns **503**. A dropped idle connection is logged, not a crash; a failed transaction keeps its original error and the broken connection is discarded. Unexpected errors return a generic 500 and are logged, never leaked.
 
@@ -213,6 +214,7 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 - **Every response has an `X-Request-Id`.** The app can send its own; otherwise the backend creates a uuid. The same id is on every log line for that request (`reqId`), so a user's error can be found in the logs from one value.
 - An incoming id is only trusted if it is short and plain (letters, digits, `.`, `_`, `-`, max 128). Anything else, such as a line break that could fake log lines, is replaced.
 - **Levels mean something:** `error` is a bug or an outage (unhandled error with stack trace, lost database connection), `warn` is degraded (health check cannot reach the database), `info` is one line in and one line out per request. Expected 4xx answers are not errors, so they do not trigger alerts.
+- Health checks are logged only when they fail, so probes every few seconds do not bury real requests.
 - The `Authorization` header is redacted from the logs. `LOG_LEVEL` is validated at startup like the rest of the config.
 
 ## Testing

@@ -19,8 +19,8 @@ info:
     2. **The screen:** `GET /v1/companies/{companyId}/card-overview`. One call
        returns everything below the switcher. Call it again when the user
        switches company, returns to the screen, pulls to refresh, or after an
-       activation. Responses are never cached by the backend, so they are always
-       current.
+       activation. Responses are never cached (`Cache-Control: no-store`), so
+       they are always current.
     3. **"54 more items in transaction view":** show it when
        `latestTransactions.totalCount > latestTransactions.items.length`, with
        the difference as the number. Tapping it opens
@@ -74,6 +74,8 @@ info:
     - Every response has an `X-Request-Id`. Send your own (letters, digits,
       `.`, `_`, `-`, max 128) to follow one request from the app through the
       backend logs; otherwise the backend creates one. Include it in bug reports.
+    - Every response has `Cache-Control: no-store`: the data is personal, so
+      neither the app's HTTP cache nor any proxy keeps it. Fetch again instead.
     - Activation responses carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`
       and `X-RateLimit-Reset`.
 

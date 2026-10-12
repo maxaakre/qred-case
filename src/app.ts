@@ -50,6 +50,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // onSend runs for every response, errors included: that is where support needs the id.
   app.addHook('onSend', async (req, reply) => {
     reply.header('x-request-id', req.id);
+    // Personal financial data: no proxy, CDN or device cache may keep a copy.
+    // Static docs assets set their own caching and are left alone.
+    if (!reply.hasHeader('cache-control')) reply.header('cache-control', 'no-store');
+  });
+  // Load balancers and Docker probe /health every few seconds. Log it only when it fails
+  // (warn), so the probes do not bury real requests.
+  app.addHook('onRoute', (route) => {
+    if (route.url === '/health') route.logLevel = 'warn';
   });
   // The spec only defines JSON bodies, and only JSON bodies are validated against it.
   // Without this, a text/plain body would skip validation entirely.
