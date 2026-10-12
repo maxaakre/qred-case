@@ -8,6 +8,19 @@ Built **contract-first**: the OpenAPI spec was written and mocked before any bac
 - **Domain language:** [`CONTEXT.md`](CONTEXT.md)
 - **Decisions:** [`docs/adr/`](docs/adr)
 
+## The case
+
+Qred's Node.js Backend Developer case has two tasks:
+
+| Task | Where |
+|---|---|
+| **1. Collaboration:** how frontend and backend can work in parallel, and how that fits Qred's values (transparency, innovation, passion) | [Presentation](https://claude.ai/artifact/1LjjfMdj42R8UaZDQtNfHx) ([in Swedish](https://claude.ai/artifact/RSRgubiXyJu95ZDEydds9p)) |
+| **2. API:** the backend for the card overview screen, in Node.js and TypeScript | This repository |
+
+The two tasks are connected. The presentation proposes agreeing the API contract first and building both sides in parallel. This repository was built that way: the spec and the mock came first, the code after, and CI keeps them in line.
+
+**Where to start:** [Quick start](#quick-start) runs everything with one command, [From the screen to the API](#from-the-screen-to-the-api) shows how the design maps to the payload, and [With more time](#with-more-time) lists what I would do next.
+
 ## Quick start
 
 Requires only Docker.
