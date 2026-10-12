@@ -42,6 +42,11 @@ describe('loadConfig', () => {
       );
     });
 
+    it('refuses demo mode unless the local demo also allows it', () => {
+      expect(() => loadConfig({ ...production, DEMO_MODE: 'true' })).toThrow(/DEMO_MODE: refused in production/);
+      expect(loadConfig({ ...production, DEMO_MODE: 'true', ALLOW_DEMO_MODE: 'true' }).demoMode).toBe(true);
+    });
+
     it('keeps /docs off unless asked for', () => {
       expect(loadConfig(production).docsEnabled).toBe(false);
       expect(loadConfig({ ...production, DOCS_ENABLED: 'true' }).docsEnabled).toBe(true);

@@ -62,6 +62,8 @@ services:
       DATABASE_URL: postgres://card_api:card_api@db:5432/cards
       # POST /demo/token and prefilled ids on /docs (ADR 0009). Never in production.
       DEMO_MODE: "true"
+      # The image runs with NODE_ENV=production, where demo mode also needs this switch.
+      ALLOW_DEMO_MODE: "true"
       # Off by default in production (NODE_ENV=production in the image).
       DOCS_ENABLED: "true"
     <<: *hardened

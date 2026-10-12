@@ -39,6 +39,8 @@ const SHUTDOWN_TIMEOUT_MS = 8_000;
 // Keep serving them for a moment instead of refusing connections. Ctrl-C (SIGINT) skips the wait.
 const DRAIN_MS = 3_000;
 async function shutdown(signal: NodeJS.Signals) {
+  // Ctrl-C during the drain after SIGTERM must not close the app and the pool a second time.
+  if (draining) return;
   app.log.info({ signal }, 'Shutting down');
   draining = true;
   // A stuck request must not keep the process alive until the platform kills it without a log line.

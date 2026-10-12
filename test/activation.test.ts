@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import pg from 'pg';
 import { describe, expect, it } from 'vitest';
 import type { CardStatus } from '../src/domain/types.js';
-import { useTestContext } from './context.js';
+import { testConfig, useTestContext } from './context.js';
 
 describe('POST /v1/cards/{cardId}/activation', () => {
   const ctx = useTestContext();
@@ -168,5 +169,37 @@ describe('POST /v1/cards/{cardId}/activation', () => {
 
     expect(res.statusCode).toBe(415);
     expect(res.json()).toMatchObject({ status: 415, title: 'Unsupported Media Type' });
+  });
+});
+
+describe('activation when the card changes between its statements', () => {
+  // The app's pool, with a hook that runs once just before the app's next SELECT. Activation
+  // runs its two UPDATEs first, then reads the card to explain why neither matched.
+  const appPool = new pg.Pool({ connectionString: testConfig.databaseUrl });
+  let beforeNextSelect: (() => Promise<void>) | undefined;
+  const query = appPool.query.bind(appPool);
+  appPool.query = (async (...args: Parameters<typeof query>) => {
+    const hook = beforeNextSelect;
+    if (hook && String(args[0]).trimStart().startsWith('SELECT')) {
+      beforeNextSelect = undefined;
+      await hook();
+    }
+    return query(...args);
+  }) as typeof appPool.query;
+  const ctx = useTestContext({}, { appPool });
+
+  it('returns 409 card-changed when support unlocks the card mid-request, so the app can retry', async () => {
+    const { user, card } = await ctx.fx.cardHolder({ status: 'INACTIVE', failedActivationAttempts: 5 });
+    // Both UPDATEs skip the locked card; then support resets the counter before the app looks.
+    beforeNextSelect = async () => {
+      await ctx.pool.query('UPDATE cards SET failed_activation_attempts = 0 WHERE id = $1', [card]);
+    };
+
+    const res = await ctx.activate(user, card, { last4: '4821' });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().type).toBe('/problems/card-changed');
+    // A retry now succeeds.
+    expect((await ctx.activate(user, card, { last4: '4821' })).statusCode).toBe(200);
   });
 });
