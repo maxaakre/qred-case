@@ -7,8 +7,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "tsx src/server.ts",
+    "dev": "tsx watch --env-file=.env src/server.ts",
+    "start": "tsx --env-file=.env src/server.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
@@ -18,9 +18,11 @@
     "spec:types": "openapi-typescript openapi/openapi.yaml -o src/generated/api.ts",
     "mock": "prism mock openapi/openapi.yaml",
     "db:up": "docker compose up -d --wait",
-    "db:migrate": "tsx scripts/migrate.ts",
-    "db:seed": "tsx scripts/seed.ts",
-    "token": "tsx scripts/token.ts"
+    "db:migrate": "tsx --env-file=.env scripts/migrate.ts",
+    "db:seed": "tsx --env-file=.env scripts/seed.ts",
+    "token": "tsx --env-file=.env scripts/token.ts",
+    "setup": "node -e \"fs.existsSync('.env')||fs.copyFileSync('.env.example','.env')\" && npm run db:up && npm run db:migrate && npm run db:seed",
+    "spec:check": "npm run spec:lint && npm run spec:types && git diff --exit-code src/generated/api.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

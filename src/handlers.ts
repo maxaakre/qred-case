@@ -3,6 +3,7 @@ import { activationService } from './activation.js';
 import type { AppDeps } from './app.js';
 import type { components } from './generated/api.js';
 import { cardOverviewService } from './overview.js';
+import { HttpProblem } from './problem.js';
 import { companiesRepository } from './repositories/companies.js';
 import { transactionsService } from './transactions.js';
 
@@ -16,8 +17,13 @@ export function createHandlers({ pool, config, now }: AppDeps) {
   const activation = activationService(pool);
 
   return {
-    async getHealth(_req: FastifyRequest, reply: FastifyReply) {
-      await pool.query('SELECT 1');
+    async getHealth(req: FastifyRequest, reply: FastifyReply) {
+      try {
+        await pool.query('SELECT 1');
+      } catch (err) {
+        req.log.warn({ err }, 'Health check: database unreachable');
+        throw new HttpProblem(503, 'Service Unavailable', 'Database unreachable');
+      }
       return reply.send({ status: 'ok' });
     },
 

@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import openapiGlue from 'fastify-openapi-glue';
 import type pg from 'pg';
 import { fileURLToPath } from 'node:url';
@@ -14,11 +14,13 @@ export interface AppDeps {
   config: Config;
   /** Injected so tests control "now" (spend period, overdue invoices). */
   now: () => Date;
+  /** Pino logger options; off in tests. */
+  logger?: FastifyServerOptions['logger'];
 }
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: false,
+    logger: deps.logger ?? false,
     ajv: {
       customOptions: {
         // `example` is documentation in the spec, not validation.
