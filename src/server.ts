@@ -15,6 +15,11 @@ const app = await buildApp({
   },
 });
 
+// An idle client can lose its connection (database restart, failover). pg then emits
+// 'error' on the pool; without a listener Node would crash the process. The pool
+// drops that client and opens a new one on the next request.
+pool.on('error', (err) => app.log.error({ err }, 'Idle database client failed'));
+
 // Finish in-flight requests and close the pool on shutdown (e.g. a Kubernetes rollout).
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {

@@ -8,22 +8,40 @@ pg.types.setTypeParser(pg.types.builtins.DATE, (value) => value);
 export type Queryable = Pick<pg.Pool, 'query'>;
 
 /**
- * Runs `fn` in a read-only REPEATABLE READ transaction, so every query sees the
- * same snapshot and numbers read separately always agree (ADR 0007).
+ * Runs `fn` in one transaction on one client. On failure the original error is
+ * kept even if ROLLBACK fails too, and a broken client is destroyed instead of
+ * going back to the pool.
  */
-export async function withSnapshot<T>(pool: pg.Pool, fn: (db: Queryable) => Promise<T>): Promise<T> {
+export async function withTransaction<T>(
+  pool: pg.Pool,
+  fn: (db: Queryable) => Promise<T>,
+  begin = 'BEGIN',
+): Promise<T> {
   const client = await pool.connect();
+  let broken: Error | undefined;
   try {
-    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    await client.query(begin);
     const result = await fn(client);
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      broken = rollbackErr as Error;
+    }
     throw err;
   } finally {
-    client.release();
+    client.release(broken);
   }
+}
+
+/**
+ * A read-only REPEATABLE READ transaction: every query sees the same snapshot,
+ * so numbers read separately always agree (ADR 0007).
+ */
+export function withSnapshot<T>(pool: pg.Pool, fn: (db: Queryable) => Promise<T>): Promise<T> {
+  return withTransaction(pool, fn, 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
 }
 
 /** Postgres returns bigint and numeric as strings. Money must stay exact, so refuse anything unsafe. */

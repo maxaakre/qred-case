@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import pg from 'pg';
+import { isMain } from './is-main.js';
 
 const MIGRATIONS_DIR = path.resolve(import.meta.dirname, '../db/migrations');
 
@@ -26,7 +27,7 @@ export async function migrate(connectionString: string): Promise<string[]> {
         await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
         await client.query('COMMIT');
       } catch (err) {
-        await client.query('ROLLBACK');
+        await client.query('ROLLBACK').catch(() => {}); // keep the migration's error, not the rollback's
         throw new Error(`Migration ${file} failed`, { cause: err });
       }
       applied.push(file);
@@ -37,7 +38,7 @@ export async function migrate(connectionString: string): Promise<string[]> {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const url = process.env.DATABASE_URL ?? 'postgres://app:app@localhost:5432/cards';
   const applied = await migrate(url);
   console.log(applied.length ? `Applied: ${applied.join(', ')}` : 'Database is up to date');

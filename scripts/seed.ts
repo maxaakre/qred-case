@@ -1,6 +1,8 @@
 import pg from 'pg';
 import { spendPeriodFor } from '../src/domain/spend-period.js';
 import { loadConfig } from '../src/config.js';
+import { withTransaction } from '../src/db.js';
+import { isMain } from './is-main.js';
 
 /**
  * Demo data that reproduces the app view: "Company AB", 5 400 / 10 000 kr spent this
@@ -21,9 +23,7 @@ const MERCHANTS = ['Clas Ohlson', 'Circle K', 'Bauhaus', 'SJ', 'Webhallen', 'Esp
 
 export async function seed(pool: pg.Pool, now = new Date()) {
   const period = spendPeriodFor(now);
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+  await withTransaction(pool, async (client) => {
     await client.query('TRUNCATE users, companies, company_members, cards, transactions, invoices CASCADE');
 
     await client.query(
@@ -80,16 +80,10 @@ export async function seed(pool: pg.Pool, now = new Date()) {
          ($1, 540000, 'SEK', $3, 'UNPAID')`,
       [DEMO.companyAb, period.start, period.end],
     );
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMain(import.meta.url)) {
   const pool = new pg.Pool({ connectionString: loadConfig().databaseUrl });
   await seed(pool);
   await pool.end();
