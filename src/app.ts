@@ -1,8 +1,11 @@
 import rateLimit from '@fastify/rate-limit';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import openapiGlue from 'fastify-openapi-glue';
 import type pg from 'pg';
 import { randomUUID } from 'node:crypto';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSecurityHandlers } from './auth.js';
 import type { Config } from './config.js';
@@ -63,6 +66,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     errorResponseBuilder: (_req, { after }) =>
       new HttpProblem(429, 'Too Many Requests', `Too many attempts. Try again in ${after}.`),
   });
+  // API docs at /docs. Static mode shows openapi.yaml as written; nothing is generated
+  // from the code, so the contract stays the single source.
+  await app.register(swagger, { mode: 'static', specification: { path: SPEC, baseDir: dirname(SPEC) } });
+  await app.register(swaggerUi, { routePrefix: '/docs' });
   await app.register(openapiGlue, {
     specification: SPEC,
     serviceHandlers: createHandlers(deps),

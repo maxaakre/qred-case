@@ -33,6 +33,8 @@ curl -X POST -H "Authorization: Bearer $ERIK" -H 'content-type: application/json
 
 `npm run db:seed` resets the demo data at any time.
 
+**API docs:** http://localhost:3000/docs (Swagger UI). Click **Authorize**, paste a token from `npm run token -- anna`, and try the calls in the browser. The page shows `openapi.yaml` as written (static mode), so the docs cannot drift from the contract.
+
 **Logs:** `npm run dev` prints readable, coloured logs; `npm start` prints one JSON object per line, as in production. Set the level with `LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`).
 
 **Frontend without the backend:** `npm run mock` serves the contract with Prism on `http://localhost:4010`.
@@ -80,6 +82,7 @@ flowchart LR
     spec --> prism["Prism<br/>mock for frontend"]
     spec --> check["Contract check<br/>every test response"]
     spec --> oasdiff["oasdiff<br/>blocks breaking PRs"]
+    spec --> docs["Swagger UI<br/>/docs"]
 
     glue --> handlers["handlers.ts<br/>HTTP in, HTTP out"]
     types -.-> handlers
