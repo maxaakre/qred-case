@@ -7,7 +7,7 @@ import { companiesRepository } from './repositories/companies.js';
 type Schemas = components['schemas'];
 
 /** One handler per operationId in openapi/openapi.yaml. */
-export function createHandlers({ pool }: AppDeps) {
+export function createHandlers({ pool, config }: AppDeps) {
   const companies = companiesRepository(pool);
 
   return {
@@ -20,11 +20,19 @@ export function createHandlers({ pool }: AppDeps) {
       return { items: await companies.listForUser(req.userId) };
     },
 
-    async getCardOverview(req: FastifyRequest<{ Params: { companyId: string } }>) {
+    async getCardOverview(req: FastifyRequest<{ Params: { companyId: string } }>): Promise<Schemas['CardOverview']> {
       const membership = await companies.findMembership(req.userId, req.params.companyId);
       // Same answer for "does not exist" and "not yours" (ADR 0005).
       if (!membership) throw notFound('Company not found');
-      throw new Error('Not implemented');
+      return {
+        company: membership.company,
+        card: null,
+        invoiceDue: null,
+        spend: null,
+        latestTransactions: null,
+        actions: { canActivateCard: false, activationBlockedReason: 'NO_CARD' },
+        support: config.support,
+      };
     },
   };
 }

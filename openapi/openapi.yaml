@@ -1,4 +1,4 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: Card Overview API
   version: 1.0.0
@@ -220,8 +220,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         last4:
-          type: string
-          nullable: true
+          type: [string, 'null']
           pattern: '^[0-9]{4}$'
           example: '4821'
           description: null while the card is INACTIVE (the digits are the activation proof)
@@ -292,8 +291,7 @@ components:
       properties:
         canActivateCard: { type: boolean }
         activationBlockedReason:
-          type: string
-          nullable: true
+          type: [string, 'null']
           enum: [NO_CARD, NOT_INACTIVE, LOCKED, null]
           description: |
             Why activation is not possible, so the app can show the right text
@@ -314,24 +312,16 @@ components:
       properties:
         company: { $ref: '#/components/schemas/CompanySummary' }
         card:
-          type: object
-          nullable: true
-          allOf: [{ $ref: '#/components/schemas/Card' }]
+          oneOf: [{ $ref: '#/components/schemas/Card' }, { type: 'null' }]
         invoiceDue:
-          type: object
-          nullable: true
           description: |
             The oldest unpaid invoice. null when nothing is due, or when the
             user is not OWNER or ADMIN of the company.
-          allOf: [{ $ref: '#/components/schemas/InvoiceDue' }]
+          oneOf: [{ $ref: '#/components/schemas/InvoiceDue' }, { type: 'null' }]
         spend:
-          type: object
-          nullable: true
-          allOf: [{ $ref: '#/components/schemas/Spend' }]
+          oneOf: [{ $ref: '#/components/schemas/Spend' }, { type: 'null' }]
         latestTransactions:
-          type: object
-          nullable: true
-          allOf: [{ $ref: '#/components/schemas/LatestTransactions' }]
+          oneOf: [{ $ref: '#/components/schemas/LatestTransactions' }, { type: 'null' }]
         actions: { $ref: '#/components/schemas/Actions' }
         support: { $ref: '#/components/schemas/Support' }
 
@@ -343,8 +333,7 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Transaction' }
         nextCursor:
-          type: string
-          nullable: true
+          type: [string, 'null']
           description: null on the last page
 
     Problem:

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createTestContext, type TestContext } from './context.js';
+import { createTestContext, testConfig, type TestContext } from './context.js';
 import { expectContract } from './contract.js';
 
 describe('GET /v1/companies/{companyId}/card-overview', () => {
@@ -41,6 +41,27 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
 
       expect(res.statusCode).toBe(400);
       expectContract(res, 'getCardOverview');
+    });
+  });
+
+  describe('member without a card', () => {
+    it('returns an empty state instead of an error', async () => {
+      const user = await ctx.fx.user();
+      const company = await ctx.fx.company('Company AB');
+      await ctx.fx.member(user, company, 'EMPLOYEE');
+
+      const res = await getOverview(user, company);
+
+      expect(res.statusCode).toBe(200);
+      expect(expectContract(res, 'getCardOverview')).toEqual({
+        company: { id: company, name: 'Company AB' },
+        card: null,
+        invoiceDue: null,
+        spend: null,
+        latestTransactions: null,
+        actions: { canActivateCard: false, activationBlockedReason: 'NO_CARD' },
+        support: testConfig.support,
+      });
     });
   });
 });
