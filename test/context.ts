@@ -4,6 +4,7 @@ import pg from 'pg';
 import { inject } from 'vitest';
 import { buildApp } from '../src/app.js';
 import type { Config } from '../src/config.js';
+import { fixtures, type Fixtures } from './fixtures.js';
 
 export const testConfig: Config = {
   port: 0,
@@ -15,6 +16,7 @@ export const testConfig: Config = {
 export interface TestContext {
   app: FastifyInstance;
   pool: pg.Pool;
+  fx: Fixtures;
   token(userId: string, opts?: { expiresIn?: string }): Promise<string>;
   tokenSignedWith(secret: string, userId: string): Promise<string>;
   close(): Promise<void>;
@@ -31,6 +33,7 @@ export async function createTestContext(): Promise<TestContext> {
   return {
     app,
     pool,
+    fx: fixtures(pool),
     token: (userId, opts) => sign(testConfig.jwtSecret, userId, opts?.expiresIn),
     tokenSignedWith: (secret, userId) => sign(secret, userId),
     async close() {

@@ -1,6 +1,8 @@
 import type { FastifyRequest } from 'fastify';
 import { jwtVerify } from 'jose';
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 declare module 'fastify' {
   interface FastifyRequest {
     userId: string;
@@ -19,7 +21,7 @@ export function createSecurityHandlers(jwtSecret: string) {
       if (!header?.startsWith('Bearer ')) throw Object.assign(new Error('Missing bearer token'), { statusCode: 401 });
       try {
         const { payload } = await jwtVerify(header.slice(7), key, { algorithms: ['HS256'] });
-        if (!payload.sub) throw new Error('Token has no subject');
+        if (!payload.sub || !UUID.test(payload.sub)) throw new Error('Token subject is not a user id');
         req.userId = payload.sub;
       } catch {
         throw Object.assign(new Error('Invalid bearer token'), { statusCode: 401 });

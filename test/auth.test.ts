@@ -36,4 +36,11 @@ describe('authentication', () => {
     expect(res.statusCode).toBe(401);
     expectContract(res, 'listMyCompanies');
   });
+
+  it('rejects a valid token whose subject is not a user id', async () => {
+    const res = await listCompanies(`Bearer ${await ctx.token('not-a-uuid')}`);
+
+    expect(res.statusCode).toBe(401);
+    expectContract(res, 'listMyCompanies');
+  });
 });
