@@ -61,12 +61,13 @@ export function fixtures(pool: pg.Pool) {
       occurredAt: string;
       status?: 'PENDING' | 'SETTLED' | 'DECLINED';
       merchant?: string;
+      currency?: string;
     }) {
       const id = randomUUID();
       await pool.query(
         `INSERT INTO transactions (id, card_id, amount_minor, currency, merchant, status, occurred_at)
-         VALUES ($1, $2, $3, 'SEK', $4, $5, $6)`,
-        [id, cardId, opts.amount, opts.merchant ?? 'Merchant', opts.status ?? 'SETTLED', opts.occurredAt],
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [id, cardId, opts.amount, opts.currency ?? 'SEK', opts.merchant ?? 'Merchant', opts.status ?? 'SETTLED', opts.occurredAt],
       );
       return id;
     },
