@@ -34,7 +34,7 @@ _Avoid_: Owner (that is a role)
 _Avoid_: Blocked, disabled
 
 **Activation**:
-The one-time step where the card holder proves they have the physical card by entering its last 4 digits, moving it from `INACTIVE` to `ACTIVE`.
+The one-time step where the card holder proves they have the physical card by entering its last 4 digits, moving it from `INACTIVE` to `ACTIVE`. Activating a **replacement** closes the holder's older card in the company: one card works at a time.
 
 **Activation lock**:
 The state after too many wrong activation attempts. Only support can lift it.

@@ -89,7 +89,7 @@ npm run token -- anna
 
 `npm run db:seed` resets the demo data at any time.
 
-**Production build:** the `Dockerfile` builds a small image with the compiled code and production dependencies only, running as a non-root user. Without Docker: `npm run build`, then `npm run db:migrate:prod` and `npm run start:prod`. Two instances migrating at once are safe: they take turns on a database lock.
+**Production build:** the `Dockerfile` builds a small image with the compiled code and production dependencies only, running as a non-root user, on base images pinned by digest. Without Docker: `npm run build`, then `npm run db:migrate:prod` and `npm run start:prod` (both read `.env` when it exists). Two instances migrating at once are safe: they take turns on a database lock.
 
 **API docs:** http://localhost:3000/docs (Swagger UI), written for frontend: how to build the screen, what to show for every error, formats, and a named example for every state of the screen. See [Try it in Swagger](#try-it-in-swagger) for the demo flow.
 
@@ -195,7 +195,7 @@ flowchart TD
     start(["POST /v1/cards/{id}/activation<br/>{ last4 }"]) --> rate{"Over the rate limit<br/>for this user?"}
     rate -- yes --> r429["429 + Retry-After"]
     rate -- no --> try["Atomic UPDATE:<br/>activate if INACTIVE,<br/>not locked, digits match"]
-    try -- row updated --> ok["200 card is ACTIVE"]
+    try -- row updated --> ok["200 card is ACTIVE<br/>(an older card is closed)"]
     try -- no row --> fail["Atomic UPDATE:<br/>count a wrong attempt"]
     fail -- row updated --> r422["422 + attemptsRemaining"]
     fail -- no row --> look{"Why? Look up the card"}
@@ -218,6 +218,10 @@ src/
   server.ts              process entry: config, logging, graceful shutdown
   config.ts              typed, validated config; refuses to start if anything is missing
   auth.ts                JWT verification (HS256, subject = user id)
+  uuid.ts                the uuid format Postgres reads, for validation and cursors
+  demo.ts                demo mode only: POST /demo/token and the demo additions to /docs
+  dev-token.ts           signs tokens for the demo and the tests
+  docs-theme.ts          styling for /docs
   api.ts                 shapes from the spec: schemas, path, query and body per operation
   handlers.ts            one thin handler per operationId
   overview.ts            use case: the card overview screen in one snapshot
@@ -229,7 +233,7 @@ src/
   problem.ts             problem+json errors
   db.ts                  transactions and snapshots, safe integer parsing
   generated/api.ts       types generated from the spec (checked in CI)
-scripts/                 migrate, seed (both need only DATABASE_URL), token, docker-smoke.sh
+scripts/                 migrate, seed (both need only DATABASE_URL), token, docker-smoke.sh, and their helpers
 test/                    HTTP tests against real Postgres, plus the contract checker
 Dockerfile               production image: compiled code, production dependencies, non-root
 docker-compose.yml       db, setup (migrate + seed), api and mock
@@ -238,7 +242,7 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 ## Edge cases handled
 
 - No access to a company or card → **404**, same as "does not exist", so ids of other customers are not confirmed ([ADR 0005](docs/adr/0005-404-when-the-user-has-no-access.md)).
-- Member without a card → empty state. Several cards → the newest one that is not closed, so a replacement card issued while the old one still works shows up with its "Activate card" button. Spend and the latest transactions still come from the old card while it is in use, so the screen never claims the whole limit is left (`latestTransactions.cardId` says which card). Frozen cards are shown.
+- Member without a card → empty state. Several cards → the newest one that is not closed, so a replacement card issued while the old one still works shows up with its "Activate card" button. Spend and the latest transactions still come from the old card while it is in use, so the screen never claims the whole limit is left (`latestTransactions.cardId` says which card). Activating the replacement closes the old card in the same statement, so one card works at a time. Frozen cards are shown.
 - Spend uses the **calendar month in Swedish time**: a purchase at 00:30 on the 1st belongs to the new month, across summer/winter time.
 - Pending and settled purchases count, refunds reduce spend in the month they arrive, declined ones are ignored. Spent never goes below zero and remaining never goes below zero.
 - Invoices are visible to owners and admins only. Overdue the day after the due date, in Swedish time.
@@ -264,7 +268,7 @@ docker-compose.yml       db, setup (migrate + seed), api and mock
 | Slow clients and slow queries | Requests time out after 10 s; queries are cancelled after 5 s and idle transactions after 10 s, so one request cannot hold a connection. |
 | Leaking internals | Unexpected errors return a generic `500`; the details go to the log with the request id. |
 | Browsers and caches | `Cache-Control: no-store`, `nosniff`, HSTS, and a content security policy that lets an API response run nothing. `/docs` gets its own narrow policy and cannot be framed. |
-| Vulnerable dependencies | CI fails on known high-severity vulnerabilities in production dependencies; Dependabot opens update pull requests for npm, actions and the base image. Actions are pinned to commits and the workflow token is read-only. |
+| Vulnerable dependencies | CI fails on known high-severity vulnerabilities in production dependencies; Dependabot opens update pull requests for npm, actions and the base images. Actions are pinned to commits, base images to digests, and the workflow token is read-only. |
 | A compromised container | The image runs as a non-root user; in Compose the app containers have a read-only filesystem, no Linux capabilities and no privilege escalation. |
 | Demo shortcuts in production | Demo mode is off unless `DEMO_MODE=true`, and with `NODE_ENV=production` it also needs `ALLOW_DEMO_MODE=true` (only Compose sets it). It logs a warning when on, and its tokens only reach the seeded demo users ([ADR 0009](docs/adr/0009-demo-tokens-outside-the-contract.md)). The seed script, which empties every table, refuses to run in the production image unless `ALLOW_DEMO_SEED=true` (only Compose sets it). |
 | Forgotten production settings | With `NODE_ENV=production` (set in the image) the dev defaults are gone: `JWT_ISSUER` and `JWT_AUDIENCE` must be set, and `/docs` is off unless `DOCS_ENABLED=true`. |
@@ -290,20 +294,22 @@ npm run lint && npm run typecheck && npm run spec:check
 
 Tests sit at three agreed seams:
 
-1. **The HTTP API**, via `app.inject()` against a real Postgres. This is what the app uses, so tests survive refactoring. No mocked database.
+1. **The HTTP API**, via `app.inject()` against a real Postgres. This is what the app uses, so tests survive refactoring. The database is never mocked for behaviour; a few error tests swap in a pool that cannot connect or throws, to simulate an outage.
 2. **The spend period**, as a pure function, for time-zone, summer/winter time (March and October) and leap-year cases that are hard to hit over HTTP.
-3. **The contract.** Every response in every test is validated against `openapi.yaml`: status, content type and body. It is automatic (`checkEveryResponse` wraps `app.inject`), so no test can forget it. This check caught a real bug: OpenAPI 3.0 cannot express a nullable `$ref`, so the spec was moved to 3.1.
+3. **The contract.** Every response in every test is validated against `openapi.yaml`: status, content type and body. It is automatic (`checkEveryResponse` wraps `app.inject`), so no test can forget it. It is stricter than the spec: a response field the spec does not name fails the test, so a leaked column cannot slip through (`test/contract.test.ts` proves the check can fail). This check caught a real bug: OpenAPI 3.0 cannot express a nullable `$ref`, so the spec was moved to 3.1.
 
-The tests were checked by breaking the code on purpose (counting declined transactions, showing `last4` on inactive cards, not clamping spend, including closed cards, a read-then-write attempt counter). Each break made a test fail.
+`npm run test:coverage` includes `src/` and `scripts/`, and fails below a floor (90 % of statements, 83 % of branches). CI runs it.
+
+The tests were checked by breaking the code on purpose (counting declined transactions, showing `last4` on inactive cards, not clamping spend, including closed cards, a read-then-write attempt counter, ignoring frozen cards in use). Each break made a test fail.
 
 ### CI
 
-Every push runs on Node 26, the version in `.nvmrc`. Node 26 becomes LTS at the end of October 2026, so a service shipping now starts on the release with the longest support.
+Every pull request and every push to `main` runs on Node 26, the version in `.nvmrc`. Node 26 becomes LTS at the end of October 2026, so a service shipping now starts on the release with the longest support.
 
 | Job | Fails when |
 |---|---|
 | Contract, lint, types and build | The spec is invalid, `src/generated/api.ts` is out of date with it, lint or types fail, the production build breaks, or a production dependency has a known high-severity vulnerability (`npm audit --omit=dev`) |
-| Tests | Any test fails, against a real Postgres in Testcontainers |
+| Tests | Any test fails, against a real Postgres in Testcontainers, or coverage drops below the floor |
 | docker compose up | The stack does not start from scratch, or [`scripts/docker-smoke.sh`](scripts/docker-smoke.sh) cannot call the API as a seeded user or reach the mock |
 | No breaking API changes (pull requests) | [`oasdiff`](https://github.com/oasdiff/oasdiff) finds a breaking change against `main`: a removed field, a field that became optional, a new required input. The app already in users' phones would break. Adding fields and endpoints passes. Verified with a test pull request that made `spend.remaining` optional. How to make a breaking change anyway: [ADR 0010](docs/adr/0010-evolving-the-api-without-breaking-apps.md). |
 

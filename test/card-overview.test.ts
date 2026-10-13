@@ -148,6 +148,19 @@ describe('GET /v1/companies/{companyId}/card-overview', () => {
       expect(body.latestTransactions).toMatchObject({ cardId: old, totalCount: 1 });
     });
 
+    it('shows the spend of a frozen old card while its replacement waits for activation', async () => {
+      const { user, company } = await member();
+      const old = await ctx.fx.card({ holder: user, company, status: 'FROZEN', createdAt: '2026-01-01T00:00:00Z' });
+      const replacement = await ctx.fx.card({ holder: user, company, status: 'INACTIVE', createdAt: '2026-09-01T00:00:00Z' });
+      await ctx.fx.transaction(old, { amount: -250_000, occurredAt: '2026-10-05T12:00:00Z' });
+
+      const body = (await getOverview(user, company)).json();
+
+      expect(body.card).toMatchObject({ id: replacement, status: 'INACTIVE' });
+      expect(body.spend).toMatchObject({ spent: { minor: 250_000 } });
+      expect(body.latestTransactions).toMatchObject({ cardId: old, totalCount: 1 });
+    });
+
     it('shows the new card on its own once the old one is closed', async () => {
       const { user, company } = await member();
       const old = await ctx.fx.card({ holder: user, company, status: 'CLOSED', createdAt: '2026-01-01T00:00:00Z' });

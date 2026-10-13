@@ -36,14 +36,23 @@ async function takeMigrationLock(client: pg.Client) {
   }
 }
 
-/** Indexes left INVALID by an interrupted CREATE INDEX CONCURRENTLY. */
-async function dropInvalidIndexes(client: pg.Client) {
+/** The indexes a migration builds with CREATE INDEX CONCURRENTLY IF NOT EXISTS. */
+const indexesBuiltBy = (sql: string) =>
+  [...sql.matchAll(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+"?(\w+)"?/gi)].map((m) => m[1]!);
+
+/**
+ * Of the indexes this migration builds, those left INVALID by an earlier, interrupted run.
+ * Any other invalid index (say, a DBA's REINDEX CONCURRENTLY in progress) is not ours to drop.
+ */
+async function dropInvalidIndexes(client: pg.Client, names: string[]) {
+  if (!names.length) return;
   const { rows } = await client.query<{ name: string }>(
     `SELECT format('%I.%I', n.nspname, c.relname) AS name
        FROM pg_index i
        JOIN pg_class c ON c.oid = i.indexrelid
        JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE NOT i.indisvalid AND n.nspname = current_schema()`,
+      WHERE NOT i.indisvalid AND n.nspname = current_schema() AND c.relname = ANY($1)`,
+    [names],
   );
   for (const { name } of rows) await client.query(`DROP INDEX CONCURRENTLY IF EXISTS ${name}`);
 }
@@ -53,7 +62,7 @@ async function dropInvalidIndexes(client: pg.Client) {
  * (unless it starts with NO_TRANSACTION).
  * Two deploys starting at once take turns: the second waits for the lock, then finds nothing to do.
  */
-export async function migrate(connectionString: string): Promise<string[]> {
+export async function migrate(connectionString: string, dir = MIGRATIONS_DIR): Promise<string[]> {
   const client = new pg.Client({ connectionString });
   await client.connect();
   try {
@@ -67,20 +76,20 @@ export async function migrate(connectionString: string): Promise<string[]> {
     const done = new Set(
       (await client.query<{ name: string }>('SELECT name FROM schema_migrations')).rows.map((r) => r.name),
     );
-    const files = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith('.sql')).sort();
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
     const applied: string[] = [];
     for (const file of files) {
       if (done.has(file)) continue;
-      const sql = await readFile(path.join(MIGRATIONS_DIR, file), 'utf8');
+      const sql = await readFile(path.join(dir, file), 'utf8');
       if (sql.startsWith(NO_TRANSACTION)) {
         // CREATE INDEX CONCURRENTLY cannot run in a transaction. Such a file holds one
         // idempotent statement (IF NOT EXISTS), so a retry after a crash is safe.
         // A failed concurrent build leaves an INVALID index that IF NOT EXISTS would then
-        // skip, so drop those first. No lock timeout here: a concurrent build blocks no
-        // writes while it waits, and aborting it is what leaves the invalid index.
-        await dropInvalidIndexes(client);
+        // skip, so drop those first. No lock timeout here: a concurrent build or drop blocks
+        // no writes while it waits, and aborting it is what leaves the invalid index.
         await client.query('SET lock_timeout = 0');
         try {
+          await dropInvalidIndexes(client, indexesBuiltBy(sql));
           await client.query(sql);
         } catch (err) {
           throw new Error(`Migration ${file} failed`, { cause: err });

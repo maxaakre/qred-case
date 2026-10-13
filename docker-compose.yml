@@ -22,7 +22,8 @@ x-hardened: &hardened
 
 services:
   db:
-    image: postgres:18-alpine
+    # Pinned by digest like the Dockerfile; Dependabot updates it.
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
@@ -82,7 +83,7 @@ services:
   mock:
     # Older than the dev dependency (5.16.0), which has no Docker image yet; 5.15.10 crashes on start.
     # Both serve the same contract.
-    image: stoplight/prism:5.14.2
+    image: stoplight/prism:5.14.2@sha256:87972b6cf73da2c0339fca18f362b6f93118152d652c970fab93ed13cfd55bae
     # Published for amd64 only; Apple Silicon runs it emulated.
     platform: linux/amd64
     command: ["mock", "-h", "0.0.0.0", "/spec/openapi.yaml"]

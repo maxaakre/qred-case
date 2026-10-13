@@ -91,6 +91,8 @@ export interface paths {
          *       and the old card is still in use, `card` is the new one (so the app
          *       offers "Activate card"), but `spend` and `latestTransactions` come
          *       from the card in use. `latestTransactions.cardId` says which card.
+         *       Activating the replacement closes the old card; from then on the
+         *       screen shows the new card's spend and transactions.
          *     - **No card:** if the user is a member but has no such card, `card`,
          *       `spend` and `latestTransactions` are `null`: show an empty state.
          *     - **Consistent numbers:** everything is read from one database
@@ -128,7 +130,9 @@ export interface paths {
          *     the first page. If a cursor is rejected (`400`), reload from the first
          *     page.
          *
-         *     `cardId` comes from `card.id` in the overview.
+         *     `cardId` comes from `latestTransactions.cardId` in the overview. It is
+         *     usually `card.id`, but not while a replacement card waits for activation.
+         *     A closed card's transactions stay readable.
          */
         get: operations["listCardTransactions"];
         put?: never;
@@ -161,6 +165,9 @@ export interface paths {
          *     - **After 5 wrong attempts** activation is locked (`423`) until support
          *       unlocks it. The overview then shows `activationBlockedReason: LOCKED`.
          *     - **Rate limited** per user across all cards: `429` with `Retry-After`.
+         *     - **A replacement takes over:** activating it closes the holder's older
+         *       `ACTIVE` or `FROZEN` card in the company, so one card works at a time.
+         *       The old card's transactions stay readable.
          *
          *     After `200`, call the overview again: the card shows its digits and
          *     the button disappears.

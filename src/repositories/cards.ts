@@ -164,21 +164,39 @@ export function cardsRepository(db: Queryable) {
      * Postgres re-checks the WHERE clause under the row lock, so concurrent requests
      * cannot both pass the attempt limit (ADR 0008). The audit event is written by the
      * same statement, so it exists exactly when the card changed.
+     *
+     * A replacement takes over: the holder's older ACTIVE or FROZEN cards in the company are
+     * CLOSED by the same statement. Otherwise the old card would keep working while the
+     * overview shows the new card's spend, with the whole limit left.
      */
-    async activateIfDigitsMatch(cardId: string, holderUserId: string, last4: string, maxAttempts: number) {
-      const { rows } = await db.query<CardDbRow>(
+    async activateIfDigitsMatch(
+      cardId: string,
+      holderUserId: string,
+      last4: string,
+      maxAttempts: number,
+    ): Promise<{ card: Card; replacedCardIds: string[] } | null> {
+      const { rows } = await db.query<CardDbRow & { replaced_card_ids: string[] }>(
         `WITH activated AS (
            UPDATE cards c SET status = 'ACTIVE', activated_at = now()
             WHERE ${ACTIVATABLE} AND c.last4 = $3
-            RETURNING ${CARD_COLUMNS}
+            RETURNING ${CARD_COLUMNS}, c.company_id, c.created_at
+         ), replaced AS (
+           UPDATE cards old SET status = 'CLOSED'
+             FROM activated a
+            WHERE old.company_id = a.company_id AND old.holder_user_id = $2
+              AND old.status IN ('ACTIVE', 'FROZEN')
+              AND (old.created_at, old.id) < (a.created_at, a.id)
+            RETURNING old.id
          ), event AS (
            INSERT INTO card_activation_events (card_id, user_id, outcome)
            SELECT id, $2, 'activated' FROM activated
          )
-         SELECT * FROM activated`,
+         SELECT a.*, ARRAY(SELECT id::text FROM replaced ORDER BY id) AS replaced_card_ids
+           FROM activated a`,
         [cardId, holderUserId, last4, maxAttempts],
       );
-      return rows[0] ? cardFromRow(rows[0]) : null;
+      const row = rows[0];
+      return row ? { card: cardFromRow(row), replacedCardIds: row.replaced_card_ids } : null;
     },
 
     /** Counts a wrong attempt atomically and returns the new count, or null if the card is not activatable. */

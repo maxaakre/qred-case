@@ -34,7 +34,7 @@ const RETRY_AFTER_SECONDS = 5;
 // Postgres SQLSTATEs that mean "not now", not "this request is wrong": a cancelled
 // (timed out) query, too many connections, a shutdown, or any lost connection (class 08).
 const UNAVAILABLE_SQLSTATES = new Set(['57014', '53300', '57P01', '57P02', '57P03']);
-const UNAVAILABLE_NODE_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENOTFOUND']);
+const UNAVAILABLE_NODE_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN']);
 
 /** The database is down, unreachable or overloaded. Worth a retry, unlike a bug. */
 function isDatabaseUnavailable(err: unknown): boolean {
