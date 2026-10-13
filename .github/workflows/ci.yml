@@ -47,8 +47,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # Testcontainers starts Postgres using the runner's Docker.
-      - run: npm test
+      # Testcontainers starts Postgres using the runner's Docker. Fails below the coverage
+      # floor in vitest.config.ts.
+      - run: npm run test:coverage
 
   breaking-changes:
     name: No breaking API changes

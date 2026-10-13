@@ -2,6 +2,7 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
+import addFormats from 'ajv-formats';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import openapiGlue from 'fastify-openapi-glue';
 import { randomUUID } from 'node:crypto';
@@ -12,11 +13,22 @@ import { demoDocsUiConfig, registerDemoRoutes, withDemoDocs } from './demo.js';
 import { docsTheme } from './docs-theme.js';
 import { createHandlers, type HandlerDeps } from './handlers.js';
 import { HttpProblem, registerProblemHandlers } from './problem.js';
+import { UUID } from './uuid.js';
 
 const SPEC = fileURLToPath(new URL('../openapi/openapi.yaml', import.meta.url));
 
 /** A caller's request id is trusted only if it cannot forge log lines or bloat them. */
 const SAFE_REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/;
+
+/**
+ * ajv-formats, with `uuid` narrowed to what Postgres reads. ajv-formats also accepts
+ * `urn:uuid:…`, which the database refuses: a malformed id would become a 500, not a 400.
+ * Named like ajv-formats' own plugin, so Fastify does not add that again on top of this one.
+ */
+function formatsPlugin(ajv: Parameters<typeof addFormats.default>[0]) {
+  addFormats.default(ajv);
+  return ajv.addFormat('uuid', UUID);
+}
 
 export interface AppDeps extends HandlerDeps {
   /** Pino logger options; off in tests. */
@@ -50,6 +62,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         // Report every invalid field at once. Safe here: bodies are capped at 1 KiB.
         allErrors: true,
       },
+      plugins: [formatsPlugin],
     },
   });
   app.decorateRequest('userId', '');

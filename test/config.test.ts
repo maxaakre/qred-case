@@ -58,9 +58,9 @@ describe('loadConfig', () => {
   });
 
   it('names every missing or invalid setting at once', () => {
-    expect(() => loadConfig({ ...valid, DATABASE_URL: undefined, SUPPORT_EMAIL: 'not-an-email', LOG_LEVEL: 'loud' })).toThrow(
-      /DATABASE_URL[\s\S]*SUPPORT_EMAIL|SUPPORT_EMAIL[\s\S]*DATABASE_URL/,
-    );
+    const load = () => loadConfig({ ...valid, DATABASE_URL: undefined, SUPPORT_EMAIL: 'not-an-email', LOG_LEVEL: 'loud' });
+
+    for (const key of ['DATABASE_URL', 'SUPPORT_EMAIL', 'LOG_LEVEL']) expect(load).toThrow(key);
   });
 
   it.each([

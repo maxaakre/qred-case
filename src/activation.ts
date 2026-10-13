@@ -18,8 +18,8 @@ export function activationService(pool: pg.Pool) {
       const audit = { event: 'card_activation', cardId, userId };
       const activated = await cards.activateIfDigitsMatch(cardId, userId, last4, MAX_ACTIVATION_ATTEMPTS);
       if (activated) {
-        log.info({ ...audit, outcome: 'activated' }, 'Card activated');
-        return apiCard(activated);
+        log.info({ ...audit, outcome: 'activated', replacedCardIds: activated.replacedCardIds }, 'Card activated');
+        return apiCard(activated.card);
       }
 
       const failed = await cards.recordFailedActivation(cardId, userId, last4, MAX_ACTIVATION_ATTEMPTS);

@@ -172,6 +172,46 @@ describe('POST /v1/cards/{cardId}/activation', () => {
   });
 });
 
+describe('activating a replacement card', () => {
+  const ctx = useTestContext();
+  const status = async (card: string) =>
+    (await ctx.pool.query('SELECT status FROM cards WHERE id = $1', [card])).rows[0].status;
+
+  it.each(['ACTIVE', 'FROZEN'] as const)('closes the older %s card, so only one card works at a time', async (oldStatus) => {
+    const { user, company } = await ctx.fx.memberOf();
+    const old = await ctx.fx.card({ holder: user, company, status: oldStatus, createdAt: '2026-01-01T00:00:00Z' });
+    const replacement = await ctx.fx.card({ holder: user, company, status: 'INACTIVE', createdAt: '2026-09-01T00:00:00Z' });
+    await ctx.fx.transaction(old, { amount: -250_000, occurredAt: '2026-10-05T12:00:00Z' });
+
+    const res = await ctx.activate(user, replacement, { last4: '4821' });
+
+    expect(res.statusCode).toBe(200);
+    expect(await status(old)).toBe('CLOSED');
+    const overview = (await ctx.overview(user, company)).json();
+    expect(overview.card).toMatchObject({ id: replacement, status: 'ACTIVE' });
+    expect(overview.latestTransactions).toMatchObject({ cardId: replacement, totalCount: 0 });
+    // The closed card's history stays readable.
+    const history = (await ctx.get(user, `/v1/cards/${old}/transactions`)).json();
+    expect(history.items).toHaveLength(1);
+  });
+
+  it("leaves the holder's newer cards, other holders' cards and other companies alone", async () => {
+    const { user, company } = await ctx.fx.memberOf();
+    const replacement = await ctx.fx.card({ holder: user, company, status: 'INACTIVE', createdAt: '2026-09-01T00:00:00Z' });
+    const newer = await ctx.fx.card({ holder: user, company, status: 'ACTIVE', createdAt: '2026-10-01T00:00:00Z' });
+    const colleague = await ctx.fx.user('Colleague');
+    await ctx.fx.member(colleague, company);
+    const colleaguesCard = await ctx.fx.card({ holder: colleague, company, status: 'ACTIVE', createdAt: '2026-01-01T00:00:00Z' });
+    const other = await ctx.fx.company('Other AB');
+    await ctx.fx.member(user, other);
+    const cardElsewhere = await ctx.fx.card({ holder: user, company: other, status: 'ACTIVE', createdAt: '2026-01-01T00:00:00Z' });
+
+    expect((await ctx.activate(user, replacement, { last4: '4821' })).statusCode).toBe(200);
+
+    expect([await status(newer), await status(colleaguesCard), await status(cardElsewhere)]).toEqual(['ACTIVE', 'ACTIVE', 'ACTIVE']);
+  });
+});
+
 describe('activation when the card changes between its statements', () => {
   // The app's pool, with a hook that runs once just before the app's next SELECT. Activation
   // runs its two UPDATEs first, then reads the card to explain why neither matched.

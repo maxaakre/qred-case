@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { Ajv } from 'ajv';
+import { Ajv2020 } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
 import { expect } from 'vitest';
@@ -11,9 +11,34 @@ import { parse } from 'yaml';
  * for every `app.inject` (see `checkEveryResponse`).
  */
 const spec = parse(readFileSync(new URL('../openapi/openapi.yaml', import.meta.url), 'utf8'));
-const ajv = new Ajv({ strict: false, allErrors: true });
+
+/**
+ * The spec leaves objects open, so apps can ignore fields added later. The tests are
+ * stricter: a response field the spec does not name fails, so a mapper that leaks a
+ * column (say `failedActivationAttempts`) cannot pass unnoticed.
+ */
+function closeObjects(node: unknown): void {
+  if (Array.isArray(node)) return node.forEach(closeObjects);
+  if (!node || typeof node !== 'object') return;
+  const schema = node as Record<string, any>;
+  if (Array.isArray(schema.allOf) && schema.allOf.length > 1) {
+    // Parts that add up to one object (Problem + attemptsRemaining) are checked as a whole:
+    // inline each part open, and close the combination.
+    schema.allOf = schema.allOf.map((part: unknown) => structuredClone(resolve(part)));
+    schema.unevaluatedProperties = false;
+    for (const part of schema.allOf) Object.values(part.properties ?? {}).forEach(closeObjects);
+    return;
+  }
+  if (schema.properties) schema.unevaluatedProperties = false;
+  Object.values(schema).forEach(closeObjects);
+}
+
+const strictSpec = structuredClone(spec);
+closeObjects(strictSpec.paths);
+closeObjects(strictSpec.components);
+const ajv = new Ajv2020({ strict: false, allErrors: true });
 addFormats.default(ajv);
-ajv.addSchema(spec, 'spec');
+ajv.addSchema(strictSpec, 'spec');
 
 const escape = (s: string) => s.replaceAll('~', '~0').replaceAll('/', '~1');
 

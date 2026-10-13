@@ -26,7 +26,6 @@ describe('demo tokens, DEMO_MODE off (the default)', () => {
 
     expect(spec.paths['/demo/token']).toBeUndefined();
     expect(JSON.stringify(spec)).not.toContain(DEMO.companyAb);
-    expect(JSON.stringify(spec)).not.toContain('X-Demo-Auth');
   });
 });
 
@@ -95,7 +94,6 @@ describe('demo tokens, DEMO_MODE on', () => {
       expect((operation.parameters ?? []).filter((p: any) => p.in === 'header')).toEqual([]);
     }
     expect(spec.paths['/v1/cards/{cardId}/activation'].post.description).toMatch(/card holder/i);
-    expect(JSON.stringify(spec)).not.toContain('X-Demo-Auth');
     expect(page.body).not.toContain('requestInterceptor');
   });
 

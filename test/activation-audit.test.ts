@@ -20,6 +20,17 @@ describe('activation audit log', () => {
     expect(log.lines.some((line) => 'last4' in line || JSON.stringify(line).includes('"last4"'))).toBe(false);
   });
 
+  it('logs which older card a replacement closed', async () => {
+    const { user, company } = await ctx.fx.memberOf();
+    const old = await ctx.fx.card({ holder: user, company, status: 'ACTIVE', createdAt: '2026-01-01T00:00:00Z' });
+    const replacement = await ctx.fx.card({ holder: user, company, status: 'INACTIVE', createdAt: '2026-09-01T00:00:00Z' });
+    log.lines.length = 0;
+
+    await ctx.activate(user, replacement, { last4: '4821' });
+
+    expect(events()).toEqual([expect.objectContaining({ outcome: 'activated', cardId: replacement, replacedCardIds: [old] })]);
+  });
+
   it('records when the last wrong try happened', async () => {
     const { user, card } = await ctx.fx.cardHolder();
 

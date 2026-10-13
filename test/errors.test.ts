@@ -7,10 +7,11 @@ import { deadPool, useTestContext } from './context.js';
 describe('error responses', () => {
   const ctx = useTestContext({}, { reset: false });
   let user: string;
+  let company: string;
   let card: string;
   beforeAll(async () => {
     await ctx.fx.reset();
-    ({ user, card } = await ctx.fx.cardHolder());
+    ({ user, company, card } = await ctx.fx.cardHolder());
   });
 
   const activate = (payload: object) => ctx.activate(user, card, payload);
@@ -38,6 +39,8 @@ describe('error responses', () => {
 
   it.each([
     ['a path id', `/v1/companies/not-a-uuid/card-overview`, { in: 'path', field: 'companyId', message: 'must be a uuid' }],
+    // ajv-formats accepts this form, Postgres does not: without the narrower format it was a 500.
+    ['a urn:uuid path id', `/v1/companies/urn:uuid:${DEMO.companyAb}/card-overview`, { in: 'path', field: 'companyId', message: 'must be a uuid' }],
     ['a query limit', `/v1/cards/${DEMO.annaCard}/transactions?limit=500`, { in: 'query', field: 'limit', message: 'must be at most 100' }],
     ['a query type', `/v1/cards/${DEMO.annaCard}/transactions?limit=abc`, { in: 'query', field: 'limit', message: 'must be an integer' }],
   ])('names %s that is wrong', async (_name, url, error) => {
@@ -67,6 +70,23 @@ describe('error responses', () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.json().instance).toBe(`/v1/cards/${card}/transactions`);
+  });
+
+  it('refuses a body with a __proto__ key (prototype pollution)', async () => {
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: `/v1/cards/${card}/activation`,
+      headers: { authorization: `Bearer ${await ctx.token(user)}`, 'content-type': 'application/json' },
+      payload: '{"last4":"4821","__proto__":{"isAdmin":true}}',
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('ignores query parameters it does not know, so older apps keep working', async () => {
+    const res = await ctx.get(user, `/v1/companies/${company}/card-overview?view=compact`);
+
+    expect(res.statusCode).toBe(200);
   });
 
   it('says which route was not found', async () => {
@@ -111,6 +131,22 @@ describe('when a query times out', () => {
   const ctx = useTestContext({}, { reset: false, appPool: slowPool });
 
   it('answers 503 with Retry-After, since a retry may well work', async () => {
+    const res = await ctx.get(DEMO.anna, '/v1/me/companies');
+
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['retry-after']).toBe('5');
+  });
+});
+
+describe('when the database host cannot be resolved for a moment', () => {
+  // A DNS hiccup (EAI_AGAIN) is an outage worth a retry, not a bug.
+  const unresolvablePool = {
+    query: async () => Promise.reject(Object.assign(new Error('getaddrinfo EAI_AGAIN db'), { code: 'EAI_AGAIN' })),
+    end: async () => {},
+  } as unknown as pg.Pool;
+  const ctx = useTestContext({}, { reset: false, appPool: unresolvablePool });
+
+  it('answers 503 with Retry-After', async () => {
     const res = await ctx.get(DEMO.anna, '/v1/me/companies');
 
     expect(res.statusCode).toBe(503);

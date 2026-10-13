@@ -1,6 +1,8 @@
 # Production image: compiled JavaScript and production dependencies only.
+# Base images are pinned by digest, so a re-pushed tag cannot change what is built.
+# Dependabot opens a pull request when the tag moves.
 
-FROM node:26-alpine AS build
+FROM node:26-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -8,7 +10,7 @@ COPY . .
 # Compiles to dist/ (with the spec and migrations), then drops dev dependencies.
 RUN npm run build && npm prune --omit=dev
 
-FROM node:26-alpine
+FROM node:26-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /app/package.json ./
