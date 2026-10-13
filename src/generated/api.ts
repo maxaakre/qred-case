@@ -475,6 +475,8 @@ export interface components {
         /**
          * @description The card cannot be activated in its current state: it is FROZEN or
          *     CLOSED, or already ACTIVE and the digits do not match. Reload the overview.
+         *     `type: /problems/card-changed` means the card changed during the request
+         *     (for example support unlocked it): safe to try again at once.
          */
         Conflict: {
             headers: {
