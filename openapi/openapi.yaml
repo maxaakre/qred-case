@@ -128,7 +128,8 @@ info:
     - **`Cache-Control: no-store`** is on every response. The data is personal,
       so no cache may keep it. Fetch again instead.
     - **`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`** are
-      on every `/v1` response. Activation has a much lower limit than reading.
+      on every `/v1` response that passed validation and the token check (not
+      on `400` or `401`). Activation has a much lower limit than reading.
 
     ## Mock server
 
@@ -894,6 +895,8 @@ components:
       description: |
         The card cannot be activated in its current state: it is FROZEN or
         CLOSED, or already ACTIVE and the digits do not match. Reload the overview.
+        `type: /problems/card-changed` means the card changed during the request
+        (for example support unlocked it): safe to try again at once.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
