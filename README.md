@@ -133,6 +133,8 @@ See [`db/migrations/001_init.sql`](db/migrations/001_init.sql).
 
 ### One spec feeds everything
 
+The service runs on Fastify, because it can build routes and validation from the spec ([ADR 0011](docs/adr/0011-fastify.md)).
+
 ```mermaid
 flowchart LR
     spec["openapi/openapi.yaml<br/>the contract"]
